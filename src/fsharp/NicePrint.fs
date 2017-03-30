@@ -83,7 +83,7 @@ module internal PrintUtilities =
             if isAttribute then 
                 defaultArg (String.tryDropSuffix name "Attribute") name 
             else name
-        let tyconTextL = wordL (tagEntityRefName tcref demangled)
+        let tyconTextL = NavigableTaggedText.Create(tagEntityRefName tcref demangled, tcref.DefinitionRange) |> wordL
         if denv.shortTypeNames then 
             tyconTextL
         else
@@ -436,7 +436,17 @@ module private PrintIL =
                     if isShowBase baseName
                         then [ WordL.keywordInherit ^^ baseName ]
                         else []
-                | None   -> []
+                | None   -> 
+                    // for interface show inherited interfaces 
+                    match typeDef.tdKind with 
+                    | ILTypeDefKind.Interface ->
+                        typeDef.Implements |> List.choose (fun b -> 
+                            let baseName = layoutILType denv ilTyparSubst b
+                            if isShowBase baseName
+                                then Some (WordL.keywordInherit ^^ baseName)
+                            else None
+                        )
+                    | _ -> []
 
             let memberBlockLs (fieldDefs:ILFieldDefs, methodDefs:ILMethodDefs, propertyDefs:ILPropertyDefs, eventDefs:ILEventDefs) =
                 let ctors  =
@@ -1733,7 +1743,8 @@ module private TastDefinitionPrinting =
                       Some (wordL (tagText "(# \"<Common IL Type Omitted>\" #)"))
                   | TMeasureableRepr ty                 ->
                       Some (layoutType denv ty)
-                  | TILObjectRepr (_,_,td) -> 
+                  | TILObjectRepr _ -> 
+                      let td = tycon.ILTyconRawMetadata
                       Some (PrintIL.layoutILTypeDef denv td)
                   | _  -> None
 
