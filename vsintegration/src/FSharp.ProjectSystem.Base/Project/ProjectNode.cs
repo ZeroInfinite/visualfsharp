@@ -1521,13 +1521,15 @@ namespace Microsoft.VisualStudio.FSharp.ProjectSystem
         /// Removes items from the hierarchy. 
         /// </summary>
         /// <devdoc>Project overwrites this.</devdoc>
-        public override void Remove(bool removeFromStorage)
+        public override void Remove(bool removeFromStorage, bool promptSave = true)
         {
             // the project will not be deleted from disk, just removed      
             if (removeFromStorage)
             {
                 return;
             }
+
+            Debug.Assert(promptSave, "Non-save prompting removal is not supported");
 
             // Remove the entire project from the solution
             IVsSolution solution = this.Site.GetService(typeof(SVsSolution)) as IVsSolution;
@@ -3642,7 +3644,7 @@ namespace Microsoft.VisualStudio.FSharp.ProjectSystem
         {
             ProjectElement newItem;
 
-            string itemPath = PackageUtilities.MakeRelativeIfRooted(file, this.BaseURI);
+            string itemPath = PackageUtilities.MakeRelative(this.BaseURI.AbsoluteUrl, file);
             Debug.Assert(!Path.IsPathRooted(itemPath), "Cannot add item with full path.");
 
             string defaultBuildAction = this.DefaultBuildAction(itemPath);
@@ -3931,6 +3933,9 @@ namespace Microsoft.VisualStudio.FSharp.ProjectSystem
             var dict = new Dictionary<Microsoft.Build.Construction.ProjectItemElement, Microsoft.Build.Evaluation.ProjectItem>();
             foreach (var item in MSBuildProject.GetStaticAndVisibleItemsInOrder(this.buildProject))
             {
+                // File with "Content" or "None" build action is not compiled, so it's safe to use wildcard
+                if (item.ItemType == "Content" || item.ItemType == "None") continue;
+
                 Microsoft.Build.Evaluation.ProjectItem previousItem;
                 var key = item.Xml;
                 if (dict.TryGetValue(key, out previousItem))
@@ -4830,7 +4835,7 @@ namespace Microsoft.VisualStudio.FSharp.ProjectSystem
             return VSConstants.S_OK;
         }
 
-        public abstract void MoveFileToBottomIfNoOtherPendingMove(string relativeFilename);
+        public abstract void MoveFileToBottomIfNoOtherPendingMove(FileNode node);
 
         public int AddItem(uint itemIdLoc, VSADDITEMOPERATION op, string itemName, uint filesToOpen, string[] files, IntPtr dlgOwner, VSADDRESULT[] result)
         {
@@ -4840,37 +4845,10 @@ namespace Microsoft.VisualStudio.FSharp.ProjectSystem
         internal int DoAddItem(uint itemIdLoc, VSADDITEMOPERATION op, string itemName, uint filesToOpen, string[] files, IntPtr dlgOwner, VSADDRESULT[] result, AddItemContext addItemContext = AddItemContext.Unknown)
         {
             // Note that when executing UI actions from the F# project system, any pending 'moves' (for add/add above/add below) are already handled at another level (in Project.fs).
-            // Calls to MoveFileToBottomIfNoOtherPendingMove() in this method are for code paths hit directly by automation APIs.
             Guid empty = Guid.Empty;
 
             // When Adding an item, pass true to let AddItemWithSpecific know to fire the tracker events.
-            var r = AddItemWithSpecific(itemIdLoc, op, itemName, filesToOpen, files, dlgOwner, 0, ref empty, null, ref empty, result, true, context: addItemContext);
-            if (op == VSADDITEMOPERATION.VSADDITEMOP_RUNWIZARD)
-            {
-                HierarchyNode n = this.NodeFromItemId(itemIdLoc);
-                string relativeFolder = Path.GetDirectoryName(n.Url);
-                string relPath = PackageUtilities.MakeRelativeIfRooted(Path.Combine(relativeFolder, Path.GetFileName(itemName)), this.BaseURI);
-                MoveFileToBottomIfNoOtherPendingMove(relPath);
-            }
-            else if (op == VSADDITEMOPERATION.VSADDITEMOP_OPENFILE)
-            {
-                foreach (string file in files)
-                {
-                    HierarchyNode n = this.NodeFromItemId(itemIdLoc);
-                    string relativeFolder = Path.GetDirectoryName(n.Url);
-                    string relPath = PackageUtilities.MakeRelativeIfRooted(Path.Combine(relativeFolder, Path.GetFileName(file)), this.BaseURI);
-                    MoveFileToBottomIfNoOtherPendingMove(relPath);
-                }
-            }
-            else if (op == VSADDITEMOPERATION.VSADDITEMOP_LINKTOFILE)
-            {
-                // This does not seem to be reachable from automation APIs, no movement needed.
-            }
-            else if (op == VSADDITEMOPERATION.VSADDITEMOP_CLONEFILE)
-            {
-                // This seems to only be called as a sub-step of RUNWIZARD, no movement needed.
-            }
-            return r;
+            return AddItemWithSpecific(itemIdLoc, op, itemName, filesToOpen, files, dlgOwner, 0, ref empty, null, ref empty, result, true, context: addItemContext);
         }
 
         /// <summary>
@@ -4988,11 +4966,22 @@ namespace Microsoft.VisualStudio.FSharp.ProjectSystem
                     case VSADDITEMOPERATION.VSADDITEMOP_OPENFILE:
                         {
                             string fileName = Path.GetFileName(file);
-                            newFileName =
+                            
+                            if (context == AddItemContext.Paste && FindChild(file) != null)
+                            {
                                 // if we are doing 'Paste' and source file belongs to current project - generate fresh unique name
-                                context == AddItemContext.Paste && FindChild(file) != null
-                                    ? GenerateCopyOfFileName(baseDir, fileName)
-                                    : Path.Combine(baseDir, fileName);
+                                newFileName = GenerateCopyOfFileName(baseDir, fileName);
+                            }
+                            else if (!IsContainedWithinProjectDirectory(file))
+                            {
+                                // if the file isn't contained within the project directory,
+                                // copy it to be a child of the node we're adding to.
+                                newFileName = Path.Combine(baseDir, fileName);
+                            }
+                            else
+                            {
+                                newFileName = file;
+                            }
                         }
                         break;
                 }
@@ -5162,6 +5151,14 @@ namespace Microsoft.VisualStudio.FSharp.ProjectSystem
                 }
             }
 
+            for (int i = 0; i < actualFilesAddedIndex; ++i)
+            {
+                string absolutePath = actualFiles[i];
+                var fileNode = this.FindChild(absolutePath) as FileNode;
+                Debug.Assert(fileNode != null, $"Unable to find added child node {absolutePath}");
+                MoveFileToBottomIfNoOtherPendingMove(fileNode);
+            }
+
             return VSConstants.S_OK;
         }
 
@@ -5173,25 +5170,12 @@ namespace Microsoft.VisualStudio.FSharp.ProjectSystem
             // files[index] will be the absolute location to the linked file
             for (int index = 0; index < files.Length; index++)
             {
-                string relativeUri = PackageUtilities.GetPathDistance(this.ProjectMgr.BaseURI.Uri, new Uri(files[index]));
-                if (string.IsNullOrEmpty(relativeUri))
-                {
-                    return VSConstants.E_FAIL;
-                }
-
-                string fileName = Path.GetFileName(files[index]);
-                if (string.IsNullOrEmpty(fileName))
-                {
-                    return VSConstants.E_FAIL;
-                }
-
-                LinkedFileNode linkedNode = this.AddNewFileNodeToHierarchy(node, fileName) as LinkedFileNode;
+                LinkedFileNode linkedNode = this.AddNewFileNodeToHierarchyCore(node, files[index]) as LinkedFileNode;
                 if (linkedNode == null)
                 {
                     return VSConstants.E_FAIL;
                 }
-
-                linkedNode.ItemNode.Rename(relativeUri);
+                
                 if (node == this)
                 {
                     // parent we are adding to is project root
@@ -5205,6 +5189,12 @@ namespace Microsoft.VisualStudio.FSharp.ProjectSystem
                 }
                 linkedNode.SetIsLinkedFile(true);
                 linkedNode.OnInvalidateItems(node);
+
+                // fire the node added event now that we've set the item metadata
+                FireAddNodeEvent(files[index]);
+
+                MoveFileToBottomIfNoOtherPendingMove(linkedNode);
+
                 result[0] = VSADDRESULT.ADDRESULT_Success;
             }
             return VSConstants.S_OK;
@@ -5224,6 +5214,9 @@ namespace Microsoft.VisualStudio.FSharp.ProjectSystem
             bool found = false;
             bool fFolderCase = false;
             HierarchyNode parent = this.NodeFromItemId(itemIdLoc);
+            
+            if (parent is FileNode)
+                parent = parent.Parent;
 
             extToUse = ext.Trim();
             if (String.Compare(extToUse, ".config", StringComparison.OrdinalIgnoreCase) == 0 ||
@@ -5402,7 +5395,7 @@ namespace Microsoft.VisualStudio.FSharp.ProjectSystem
             {
                 throw new ArgumentException(SR.GetString(SR.ParameterMustBeAValidItemId, CultureInfo.CurrentUICulture), "itemId");
             }
-            n.Remove(true);
+            n.Remove(removeFromStorage: true, promptSave: false);
             result = 1;
             return VSConstants.S_OK;
         }
@@ -6395,6 +6388,15 @@ namespace Microsoft.VisualStudio.FSharp.ProjectSystem
                 CloseAllNodes(n);
             }
         }
+
+        /// <summary>
+        /// Debug method to assert that the project file and the solution explorer are in sync.
+        /// </summary>
+        [Conditional("DEBUG")]
+        public virtual void EnsureMSBuildAndSolutionExplorerAreInSync()
+        {
+        }
+
         /// <summary>
         /// Get the project extensions
         /// </summary>
@@ -6443,10 +6445,14 @@ namespace Microsoft.VisualStudio.FSharp.ProjectSystem
 
         private bool IsTargetFrameworkInstalled()
         {
+           var targetFrameworkMoniker = new System.Runtime.Versioning.FrameworkName(GetTargetFrameworkMoniker());
+           //Only check for .NetFramework. The expectation is that other frameworks will perform any checks themselves.
+           if (targetFrameworkMoniker.Identifier != ".NetFramework")
+              return true;
+
            var multiTargeting = this.site.GetService(typeof(SVsFrameworkMultiTargeting)) as IVsFrameworkMultiTargeting;
            Array frameworks;
            Marshal.ThrowExceptionForHR(multiTargeting.GetSupportedFrameworks(out frameworks));
-           var targetFrameworkMoniker = new System.Runtime.Versioning.FrameworkName(GetTargetFrameworkMoniker());
            foreach (string fx in frameworks)
            {
                uint compat;

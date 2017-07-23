@@ -160,7 +160,7 @@ if (exists($ENV{PRECMD})) {
   # and it will expanded into $FSC_PIPE before invoking it
   $_ = $ENV{PRECMD};
   s/^\$FSC_PIPE/$FSC_PIPE/;
-  s/^\$FSI_PIPE/$FSI_PIPE/;
+  s/\$FSI_PIPE/$FSI_PIPE/g;
   s/^\$FSI32_PIPE/$FSI32_PIPE/;
   s/\$ISCFLAGS/$ISCFLAGS/;
   s/^\$CSC_PIPE/$CSC_PIPE/;
@@ -369,7 +369,7 @@ if ($targetType == TARGET_EXE) {
 }
 
 if ($VerifyStrongName && $targetType <= TARGET_MOD) {
-  RunExit(TEST_FAIL, "Assembly failed verification:\n") if RunCommand("VerifyStroingName","sn -q -vf $targetName",1);
+  RunExit(TEST_FAIL, "Assembly failed verification:\n") if RunCommand("VerifyStrongName","sn -q -vf $targetName",1);
 }
 
 RunExit(TEST_PASS);

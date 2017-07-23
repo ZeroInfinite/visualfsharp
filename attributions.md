@@ -31,6 +31,7 @@ This is for those who contributed language features, compiler improvements, or i
 - [Gustavo Leon](https://github.com/gmpl)
 - [Steffen Forkmann](https://github.com/forki)
 - [Libo Zeng](https://github.com/liboz)
+- [Rikki Gibson](https://github.com/RikkiGibson)
 
 **SRTP Improvements**
 
@@ -52,6 +53,10 @@ This is for those who contributed language features, compiler improvements, or i
 
 - [Eirik Tsarpalis](https://github.com/eiriktsarpalis)
 
+### F# 4.2 Compiler Improvements
+
+- Deterministic compilation via `--deterministic`, by [David Glassborow](https://github.com/davidglassborow)
+
 ## Tooling - Visual Studio and Platform Support
 
 This is for those who contributed Visual Studio IDE features and platform support for F#.
@@ -60,10 +65,11 @@ This is for those who contributed Visual Studio IDE features and platform suppor
 
 **Editor Features**
 
+* Semantic Colorization - [Vasily Kirichenko](https://github.com/vasily-kirichenko) and [Saul Rennison](https://github.com/saul)
 * Autocompletion - [Vasily Kirichenko](https://github.com/vasily-kirichenko)
 * IntelliSense Filters and Glyph improvements - [Vasily Kirichenko](https://github.com/vasily-kirichenko)
 * IntelliSense accuracy Improvements - [Vasily Kirichenko](https://github.com/vasily-kirichenko)
-* Support for Go To All - [Vasily Kirichenko](https://github.com/vasily-kirichenko)
+* Go To All - [Vasily Kirichenko](https://github.com/vasily-kirichenko) and [Jared Hester](github.com/cloudroutine)
 * Find All References - [Vasily Kirichenko](https://github.com/vasily-kirichenko)
 * Re-enabled multiple F# project support - [Ahn-Dung Phan](https://github.com/dungpa)
 * QuickInfo (hover tooltips) Improvements - [Vasily Kirichenko](https://github.com/vasily-kirichenko) and [Jared Hester](github.com/cloudroutine)
@@ -80,15 +86,21 @@ This is for those who contributed Visual Studio IDE features and platform suppor
 * Breakpoint resolution improvements - Vasily Kirichenko](https://github.com/vasily-kirichenko) and [Steffen Forkmann](https://github.com/forki)
 * Respecting `EditorBrowsable(EditorBrowsableState.Never)` attribute - [Vasily Kirichenko](https://github.com/vasily-kirichenko)
 * XML Documentation Generation - [Ahn-Dung Phan](https://github.com/dungpa)
-* Clickable Types in QuickInfo (hover tooltips) which invoke Go to Definition - [Jakub Majocha](https://github.com/majocha)
+* Clickable items in QuickInfo (hover tooltips) which invoke Go to Definition - [Jakub Majocha](https://github.com/majocha), [Jared Hester](https://github.com/cloudRoutine), and [Vasily Kirichenko](https://github.com/vasily-kirichenko)
 * Separate color themes for light and dark mode - [Jakub Majocha](https://github.com/majocha)
 * Semantic highlighting - [Vasily Kirichenko](https://github.com/vasily-kirichenko) and [Jared Hester](github.com/cloudroutine)
 * ReSharper-like ordering in Completion lists - [Vasily Kirichenko](https://github.com/vasily-kirichenko)
+* Collapse to Definition - [Vasily Kirichenko](https://github.com/vasily-kirichenko)
+* Support for Editor Settings - [Jakub Majocha](https://github.com/majocha)
+* Localized Go to Definition Status Bar - [Saul Rennison](https://github.com/saul)
+* R#-like completion for items in unopened namespaces - [Vasily Kirichenko](https://github.com/vasily-kirichenko)
+* Wrap XML docs - [Jakub Majocha](https://github.com/majocha)
 
 **Project System**
 
 * Improved solution load time - [Saul Rennison](https://github.com/saul)
 * General improvements - [Jakub Majocha](https://github.com/majocha)
+* Move Up/Move Down on Solution folder nodes - [Saul Rennison](https://github.com/saul)
 
 **F# Interactive**
 
@@ -104,6 +116,8 @@ This is for those who contributed Visual Studio IDE features and platform suppor
 * Add open Statement Analyzer and Codefix - [Vasily Kirichenko](https://github.com/vasily-kirichenko)
 * Simplify Name Analyzer and Codefix - [Vasily Kirichenko](https://github.com/vasily-kirichenko)
 * Gray Out Unused Values - [Vasily Kirichenko](https://github.com/vasily-kirichenko)
+* Unused Declarations Analyzer and Codefix - [Vasily Kirichenko](https://github.com/vasily-kirichenko)
+* Add reference to \<assembly\> analyzer and codefix - [Saul Rennison](https://github.com/saul)
 
 ### .NET Core Support
 
@@ -120,3 +134,5 @@ Infrastructure isn't the sexiest stuff in the world, but it's absolutely necessa
 * [Alfonso Garcia-Caro](https://github.com/alfonsogarciacaro)
 * [Zp Babbi](https://github.com/zpbappi)
 * [Gauthier Segay](https://github.com/smoothdeveloper)
+* [Jared Hester](github.com/cloudroutine)
+* [Cameron Taggert](https://github.com/ctaggart)
