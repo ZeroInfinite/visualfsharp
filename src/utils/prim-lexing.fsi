@@ -1,4 +1,4 @@
-// Copyright (c) Microsoft Corporation.  All Rights Reserved.  Licensed under the Apache License, Version 2.0.  See License.txt in the project root for license information.
+// Copyright (c) Microsoft Corporation.  All Rights Reserved.  See License.txt in the project root for license information.
 
 // LexBuffers are for use with automatically generated lexical analyzers,
 // in particular those produced by 'fslex'.
@@ -65,6 +65,7 @@ type internal LexBuffer<'Char> =
     member IsPastEndOfStream: bool with get,set
 
     /// Create a lex buffer suitable for Unicode lexing that reads characters from the given array.
+    /// Important: does take ownership of the array.
     static member FromChars: char[] -> LexBuffer<char>
     /// Create a lex buffer that reads character or byte inputs by using the given function.
     static member FromFunction: ('Char[] * int * int -> int) -> LexBuffer<'Char>

@@ -1,4 +1,4 @@
-' Copyright (c) Microsoft Corporation.  All Rights Reserved.  Licensed under the Apache License, Version 2.0.  See License.txt in the project root for license information.
+' Copyright (c) Microsoft Corporation.  All Rights Reserved.  See License.txt in the project root for license information.
 
 Imports Microsoft.VisualBasic
 Imports Microsoft.VisualStudio.Shell.Interop
@@ -49,13 +49,12 @@ Namespace Microsoft.VisualStudio.Editors.PropertyPages
         Protected Const INDEX_WINDOWSCLASSLIB As Integer = 2
         Protected Const INDEX_LAST As Integer = INDEX_WINDOWSCLASSLIB
         Public Const Const_TargetFrameworkMoniker As String = "TargetFrameworkMoniker"
-        Private m_v20FSharpRedistInstalled As Boolean = False
-        Private m_v40FSharpRedistInstalled As Boolean = False
 
         Friend WithEvents TargetFramework As System.Windows.Forms.ComboBox
         Friend WithEvents TargetFrameworkLabel As System.Windows.Forms.Label
         Friend WithEvents AssemblyNameLabel As System.Windows.Forms.Label
         Friend WithEvents ResourceLabel As System.Windows.Forms.Label
+        Friend WithEvents UseStandardResourceNames As System.Windows.Forms.CheckBox
         Friend WithEvents TargetFSharpCoreVersion As System.Windows.Forms.ComboBox
         Friend WithEvents TargetFSharpCoreVersionLabel As System.Windows.Forms.Label
 
@@ -73,18 +72,6 @@ Namespace Microsoft.VisualStudio.Editors.PropertyPages
             m_OutputTypeStringKeys(INDEX_WINDOWSAPP) = SR.GetString(SR.PPG_WindowsApp)
             m_OutputTypeStringKeys(INDEX_COMMANDLINEAPP) = SR.GetString(SR.PPG_CommandLineApp)
             m_OutputTypeStringKeys(INDEX_WINDOWSCLASSLIB) = SR.GetString(SR.PPG_WindowsClassLib)
-
-#If VS_VERSION_DEV14 Then
-            Dim v20FSharpRedistKey As String = "HKEY_LOCAL_MACHINE\Software\Microsoft\FSharp\4.0\Runtime\v2.0"
-            Dim v40FSharpRedistKey As String = "HKEY_LOCAL_MACHINE\Software\Microsoft\FSharp\4.0\Runtime\v4.0"
-#End If
-#If VS_VERSION_DEV15 Then
-            Dim v20FSharpRedistKey As String = "HKEY_LOCAL_MACHINE\Software\Microsoft\FSharp\4.1\Runtime\v2.0"
-            Dim v40FSharpRedistKey As String = "HKEY_LOCAL_MACHINE\Software\Microsoft\FSharp\4.1\Runtime\v4.0"
-#End If
-
-            m_v20FSharpRedistInstalled = Not (IsNothing(Microsoft.Win32.Registry.GetValue(v20FSharpRedistKey, Nothing, Nothing)))
-            m_v40FSharpRedistInstalled = Not (IsNothing(Microsoft.Win32.Registry.GetValue(v40FSharpRedistKey, Nothing, Nothing)))
 
             'Add any initialization after the InitializeComponent() call
             AddChangeHandlers()
@@ -117,16 +104,18 @@ Namespace Microsoft.VisualStudio.Editors.PropertyPages
         Friend WithEvents Win32ResourceFileBrowse As System.Windows.Forms.Button
         Friend WithEvents Win32ResourceFile As System.Windows.Forms.TextBox
         Friend WithEvents TopHalfLayoutPanel As System.Windows.Forms.TableLayoutPanel
+
         <System.Diagnostics.DebuggerStepThrough()> Private Sub InitializeComponent()
             Dim resources As System.ComponentModel.ComponentResourceManager = New System.ComponentModel.ComponentResourceManager(GetType(ApplicationPropPage))
             Me.TopHalfLayoutPanel = New System.Windows.Forms.TableLayoutPanel()
             Me.AssemblyNameLabel = New System.Windows.Forms.Label()
             Me.ResourcesGroupBox = New System.Windows.Forms.GroupBox()
-            Me.ResourcesLabel = New System.Windows.Forms.Label()
-            Me.iconTableLayoutPanel = New System.Windows.Forms.TableLayoutPanel()
             Me.Win32ResourceFileBrowse = New System.Windows.Forms.Button()
-            Me.Win32ResourceFile = New System.Windows.Forms.TextBox()
+            Me.ResourcesLabel = New System.Windows.Forms.Label()
             Me.ResourceLabel = New System.Windows.Forms.Label()
+            Me.Win32ResourceFile = New System.Windows.Forms.TextBox()
+            Me.UseStandardResourceNames = New System.Windows.Forms.CheckBox()
+            Me.iconTableLayoutPanel = New System.Windows.Forms.TableLayoutPanel()
             Me.AssemblyName = New System.Windows.Forms.TextBox()
             Me.OutputTypeLabel = New System.Windows.Forms.Label()
             Me.OutputType = New System.Windows.Forms.ComboBox()
@@ -136,7 +125,6 @@ Namespace Microsoft.VisualStudio.Editors.PropertyPages
             Me.TargetFSharpCoreVersionLabel = New System.Windows.Forms.Label()
             Me.TopHalfLayoutPanel.SuspendLayout()
             Me.ResourcesGroupBox.SuspendLayout()
-            Me.iconTableLayoutPanel.SuspendLayout()
             Me.SuspendLayout()
             '
             'TopHalfLayoutPanel
@@ -162,38 +150,44 @@ Namespace Microsoft.VisualStudio.Editors.PropertyPages
             '
             resources.ApplyResources(Me.ResourcesGroupBox, "ResourcesGroupBox")
             Me.TopHalfLayoutPanel.SetColumnSpan(Me.ResourcesGroupBox, 2)
+            Me.ResourcesGroupBox.Controls.Add(Me.Win32ResourceFileBrowse)
             Me.ResourcesGroupBox.Controls.Add(Me.ResourcesLabel)
+            Me.ResourcesGroupBox.Controls.Add(Me.ResourceLabel)
+            Me.ResourcesGroupBox.Controls.Add(Me.Win32ResourceFile)
+            Me.ResourcesGroupBox.Controls.Add(Me.UseStandardResourceNames)
             Me.ResourcesGroupBox.Controls.Add(Me.iconTableLayoutPanel)
             Me.ResourcesGroupBox.Name = "ResourcesGroupBox"
             Me.ResourcesGroupBox.TabStop = False
-            '
-            'ResourcesLabel
-            '
-            resources.ApplyResources(Me.ResourcesLabel, "ResourcesLabel")
-            Me.ResourcesLabel.Name = "ResourcesLabel"
-            '
-            'iconTableLayoutPanel
-            '
-            resources.ApplyResources(Me.iconTableLayoutPanel, "iconTableLayoutPanel")
-            Me.iconTableLayoutPanel.Controls.Add(Me.Win32ResourceFileBrowse, 1, 8)
-            Me.iconTableLayoutPanel.Controls.Add(Me.Win32ResourceFile, 0, 8)
-            Me.iconTableLayoutPanel.Controls.Add(Me.ResourceLabel, 0, 6)
-            Me.iconTableLayoutPanel.Name = "iconTableLayoutPanel"
             '
             'Win32ResourceFileBrowse
             '
             resources.ApplyResources(Me.Win32ResourceFileBrowse, "Win32ResourceFileBrowse")
             Me.Win32ResourceFileBrowse.Name = "Win32ResourceFileBrowse"
             '
-            'Win32ResourceFile
+            'ResourcesLabel
             '
-            resources.ApplyResources(Me.Win32ResourceFile, "Win32ResourceFile")
-            Me.Win32ResourceFile.Name = "Win32ResourceFile"
+            resources.ApplyResources(Me.ResourcesLabel, "ResourcesLabel")
+            Me.ResourcesLabel.Name = "ResourcesLabel"
             '
             'ResourceLabel
             '
             resources.ApplyResources(Me.ResourceLabel, "ResourceLabel")
             Me.ResourceLabel.Name = "ResourceLabel"
+            '
+            'Win32ResourceFile
+            '
+            resources.ApplyResources(Me.Win32ResourceFile, "Win32ResourceFile")
+            Me.Win32ResourceFile.Name = "Win32ResourceFile"
+            '
+            'UseStandardResourceNames
+            '
+            resources.ApplyResources(Me.UseStandardResourceNames, "UseStandardResourceNames")
+            Me.UseStandardResourceNames.Name = "UseStandardResourceNames"
+            '
+            'iconTableLayoutPanel
+            '
+            resources.ApplyResources(Me.iconTableLayoutPanel, "iconTableLayoutPanel")
+            Me.iconTableLayoutPanel.Name = "iconTableLayoutPanel"
             '
             'AssemblyName
             '
@@ -229,9 +223,9 @@ Namespace Microsoft.VisualStudio.Editors.PropertyPages
             '
             Me.TargetFSharpCoreVersion.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList
             Me.TargetFSharpCoreVersion.FormattingEnabled = True
-            Me.TargetFSharpCoreVersion.Sorted = True
             resources.ApplyResources(Me.TargetFSharpCoreVersion, "TargetFSharpCoreVersion")
             Me.TargetFSharpCoreVersion.Name = "TargetFSharpCoreVersion"
+            Me.TargetFSharpCoreVersion.Sorted = True
             '
             'TargetFSharpCoreVersionLabel
             '
@@ -248,8 +242,6 @@ Namespace Microsoft.VisualStudio.Editors.PropertyPages
             Me.TopHalfLayoutPanel.PerformLayout()
             Me.ResourcesGroupBox.ResumeLayout(False)
             Me.ResourcesGroupBox.PerformLayout()
-            Me.iconTableLayoutPanel.ResumeLayout(False)
-            Me.iconTableLayoutPanel.PerformLayout()
             Me.ResumeLayout(False)
             Me.PerformLayout()
 
@@ -265,33 +257,55 @@ Namespace Microsoft.VisualStudio.Editors.PropertyPages
         Protected Overrides ReadOnly Property ControlData() As PropertyControlData()
             Get
                 If m_ControlData Is Nothing Then
-                    m_ControlData = New PropertyControlData() { _
-                        New PropertyControlData(VsProjPropId.VBPROJPROPID_AssemblyName, "AssemblyName", Me.AssemblyName, New Control() {Me.AssemblyNameLabel}), _
-                        New PropertyControlData(VsProjPropId.VBPROJPROPID_OutputType, Const_OutputType, Me.OutputType, AddressOf Me.OutputTypeSet, AddressOf Me.OutputTypeGet, ControlDataFlags.UserHandledEvents, New Control() {Me.OutputTypeLabel}), _
-                        New PropertyControlData(VsProjPropId80.VBPROJPROPID_Win32ResourceFile, "Win32ResourceFile", Me.Win32ResourceFile, AddressOf Me.Win32ResourceSet, AddressOf Me.Win32ResourceGet, ControlDataFlags.None, New Control() {Me.Win32ResourceFileBrowse}), _
-                        New PropertyControlData( _
-                            VsProjPropId100.VBPROJPROPID_TargetFrameworkMoniker, Const_TargetFrameworkMoniker, _
-                            TargetFramework, _
-                            AddressOf SetTargetFramework, AddressOf GetTargetFramework, _
-                            ControlDataFlags.ProjectMayBeReloadedDuringPropertySet Or ControlDataFlags.NoOptimisticFileCheckout, _
-                            New Control() {Me.TargetFrameworkLabel}), _
-                        New PropertyControlData( _
-                            VsProjPropId100.VBPROJPROPID_TargetFrameworkMoniker + 100, ProjectFileConstants.TargetFSharpCoreVersion, _
-                            Me.TargetFSharpCoreVersion, _
-                            AddressOf SetTargetFSharpCore, AddressOf GetTargetFSharpCore, _
-                            ControlDataFlags.ProjectMayBeReloadedDuringPropertySet Or ControlDataFlags.NoOptimisticFileCheckout, _
-                            New Control() {Me.TargetFSharpCoreVersionLabel}) _
+                    m_ControlData = New PropertyControlData() {
+                        New PropertyControlData(VsProjPropId.VBPROJPROPID_AssemblyName, "AssemblyName", Me.AssemblyName, New Control() {Me.AssemblyNameLabel}),
+                        New PropertyControlData(VsProjPropId.VBPROJPROPID_OutputType, Const_OutputType, Me.OutputType, AddressOf Me.OutputTypeSet, AddressOf Me.OutputTypeGet, ControlDataFlags.UserHandledEvents, New Control() {Me.OutputTypeLabel}),
+                        New PropertyControlData(VsProjPropId80.VBPROJPROPID_Win32ResourceFile, "Win32ResourceFile", Me.Win32ResourceFile, AddressOf Me.Win32ResourceSet, AddressOf Me.Win32ResourceGet, ControlDataFlags.None, New Control() {Me.Win32ResourceFileBrowse}),
+                        New PropertyControlData(&H10000000, "UseStandardResourceNames", Me.UseStandardResourceNames, AddressOf CheckBoxSet, AddressOf CheckBoxGet),
+                        New PropertyControlData(
+                            VsProjPropId100.VBPROJPROPID_TargetFrameworkMoniker, Const_TargetFrameworkMoniker,
+                            TargetFramework,
+                            AddressOf SetTargetFramework, AddressOf GetTargetFramework,
+                            ControlDataFlags.ProjectMayBeReloadedDuringPropertySet Or ControlDataFlags.NoOptimisticFileCheckout,
+                            New Control() {Me.TargetFrameworkLabel}),
+                        New PropertyControlData(
+                            VsProjPropId100.VBPROJPROPID_TargetFrameworkMoniker + 100, ProjectFileConstants.TargetFSharpCoreVersion,
+                            Me.TargetFSharpCoreVersion,
+                            AddressOf SetTargetFSharpCore, AddressOf GetTargetFSharpCore,
+                            ControlDataFlags.ProjectMayBeReloadedDuringPropertySet Or ControlDataFlags.NoOptimisticFileCheckout,
+                            New Control() {Me.TargetFSharpCoreVersionLabel})
                         }
                 End If
                 Return m_ControlData
             End Get
         End Property
 
+        Protected Function CheckBoxSet(control As Control, prop As PropertyDescriptor, value As Object) As Boolean
+            'If PropertyControlData.IsSpecialValue(value) Then
+            '    ' Don't do anything if the value is missing or indeterminate
+            '    Return False
+            'End If
+
+            If Not TypeOf value Is Boolean Then
+                ' Don't do anything if the value isn't of the expected type
+                Return False
+            End If
+
+            CType(control, CheckBox).Checked = CBool(value)
+            Return True
+        End Function
+
+        Protected Function CheckBoxGet(control As Control, prop As PropertyDescriptor, ByRef value As Object) As Boolean
+            Dim checkBox As CheckBox = CType(control, CheckBox)
+            value = checkBox.Checked.ToString()
+            Return True
+        End Function
+
         Protected Overrides ReadOnly Property ValidationControlGroups() As Control()()
             Get
                 If m_controlGroup Is Nothing Then
-                    m_controlGroup = New Control()() { _
-                        New Control() {Win32ResourceFile, Win32ResourceFileBrowse} _
+                    m_controlGroup = New Control()() {
+                        New Control() {Win32ResourceFile, Win32ResourceFileBrowse}
                         }
                 End If
                 Return m_controlGroup
@@ -463,6 +477,7 @@ Namespace Microsoft.VisualStudio.Editors.PropertyPages
             MyBase.PostInitPage()
 
             EnableControlSet(CType(GetControlValueNative(Const_OutputType), VSLangProj.prjOutputType))
+            Me.UseStandardResourceNames.Enabled = True
         End Sub
 
 
@@ -478,11 +493,8 @@ Namespace Microsoft.VisualStudio.Editors.PropertyPages
             End If
 
             Dim OutputType As VSLangProj.prjOutputType
-
             OutputType = CType(GetControlValueNative(Const_OutputType), VSLangProj.prjOutputType)
-
             Me.EnableControlSet(OutputType)
-
 
             SetDirty(VsProjPropId.VBPROJPROPID_OutputType, False)
             SetDirty(True) 'True forces Apply
@@ -522,11 +534,11 @@ Namespace Microsoft.VisualStudio.Editors.PropertyPages
                 sInitialDirectory = System.IO.Path.GetDirectoryName(sInitialDirectory)
             End If
 
-            Dim fileNames As ArrayList = Common.Utils.GetFilesViaBrowse(ServiceProvider, Me.Handle, sInitialDirectory, SR.GetString(SR.PPG_AddWin32ResourceTitle), _
-                    Common.CombineDialogFilters( _
-                        Common.CreateDialogFilter(SR.GetString(SR.PPG_AddWin32ResourceFilter), "res"), _
-                        Common.Utils.GetAllFilesDialogFilter() _
-                        ), _
+            Dim fileNames As ArrayList = Common.Utils.GetFilesViaBrowse(ServiceProvider, Me.Handle, sInitialDirectory, SR.GetString(SR.PPG_AddWin32ResourceTitle),
+                    Common.CombineDialogFilters(
+                        Common.CreateDialogFilter(SR.GetString(SR.PPG_AddWin32ResourceFilter), "res"),
+                        Common.Utils.GetAllFilesDialogFilter()
+                        ),
                         0, False, sFileName)
             If fileNames IsNot Nothing AndAlso fileNames.Count = 1 Then
                 sFileName = CStr(fileNames(0))
@@ -567,18 +579,9 @@ Namespace Microsoft.VisualStudio.Editors.PropertyPages
             If moniker.StartsWith(".NETCoreApp") OrElse moniker.StartsWith(".NETStandard") Then
                 Return True
             End If
-            If moniker.Contains("v2") Then
-                Return Me.m_v20FSharpRedistInstalled
-            End If
-            If moniker.Contains("v3.0") Then
-                Return Me.m_v20FSharpRedistInstalled
-            End If
-            If moniker.Contains("v3.5") Then
-                Return Me.m_v20FSharpRedistInstalled
-            End If
-            '' Is this cheating?
-            If moniker.Contains("v4") Then
-                Return Me.m_v40FSharpRedistInstalled
+            ' With the latest tooling, if we have editors the redist is installed by definition
+            If moniker.Contains("v2") Or moniker.Contains("v3.0") Or moniker.Contains("v3.5") Or moniker.Contains("v4") Then
+                Return True
             End If
             Return False
         End Function
@@ -762,6 +765,10 @@ Namespace Microsoft.VisualStudio.Editors.PropertyPages
             Debug.Fail("The combobox should not have still been unselected yet be dirty")
             Return False
         End Function
+
+        Private Sub Win32ResourceFile_TextChanged(sender As Object, e As EventArgs) Handles Win32ResourceFile.TextChanged
+
+        End Sub
 
 
 #End Region

@@ -1,4 +1,4 @@
-// Copyright (c) Microsoft Corporation.  All Rights Reserved.  Licensed under the Apache License, Version 2.0.  See License.txt in the project root for license information.
+// Copyright (c) Microsoft Corporation.  All Rights Reserved.  See License.txt in the project root for license information.
 
 namespace rec Microsoft.VisualStudio.FSharp.Editor
 
@@ -14,66 +14,68 @@ open Microsoft.CodeAnalysis.Diagnostics
 open Microsoft.FSharp.Compiler
 open Microsoft.FSharp.Compiler.Range
 open Microsoft.FSharp.Compiler.SourceCodeServices
-
-open Microsoft.VisualStudio.FSharp.LanguageService
+open System.Runtime.Caching
 
 type private TextVersionHash = int
+type private PerDocumentSavedData = { Hash: int; Diagnostics: ImmutableArray<Diagnostic> }
 
 [<DiagnosticAnalyzer(FSharpConstants.FSharpLanguageName)>]
 type internal SimplifyNameDiagnosticAnalyzer() =
     inherit DocumentDiagnosticAnalyzer()
     
     static let userOpName = "SimplifyNameDiagnosticAnalyzer"
-    let getProjectInfoManager (document: Document) = document.Project.Solution.Workspace.Services.GetService<FSharpCheckerWorkspaceService>().ProjectInfoManager
+    let getProjectInfoManager (document: Document) = document.Project.Solution.Workspace.Services.GetService<FSharpCheckerWorkspaceService>().FSharpProjectOptionsManager
     let getChecker (document: Document) = document.Project.Solution.Workspace.Services.GetService<FSharpCheckerWorkspaceService>().Checker
     let getPlidLength (plid: string list) = (plid |> List.sumBy String.length) + plid.Length
-    static let cache = ConditionalWeakTable<DocumentId, TextVersionHash * ImmutableArray<Diagnostic>>()
+    static let cache = new MemoryCache("FSharp.Editor." + userOpName)
     // Make sure only one document is being analyzed at a time, to be nice
     static let guard = new SemaphoreSlim(1)
 
     static let Descriptor = 
         DiagnosticDescriptor(
             id = IDEDiagnosticIds.SimplifyNamesDiagnosticId, 
-            title = SR.SimplifyName.Value, 
-            messageFormat = SR.NameCanBeSimplified.Value, 
+            title = SR.SimplifyName(),
+            messageFormat = SR.NameCanBeSimplified(),
             category = DiagnosticCategory.Style, 
             defaultSeverity = DiagnosticSeverity.Hidden, 
             isEnabledByDefault = true, 
             customTags = DiagnosticCustomTags.Unnecessary)
 
     static member LongIdentPropertyKey = "FullName"
-    
+    override __.Priority = 100 // Default = 50
     override __.SupportedDiagnostics = ImmutableArray.Create Descriptor
     override this.AnalyzeSyntaxAsync(_, _) = Task.FromResult ImmutableArray<Diagnostic>.Empty
 
     override this.AnalyzeSemanticsAsync(document: Document, cancellationToken: CancellationToken) =
         asyncMaybe {
-            do! Option.guard Settings.CodeFixes.SimplifyName
+            do! Option.guard document.FSharpOptions.CodeFixes.SimplifyName
             do Trace.TraceInformation("{0:n3} (start) SimplifyName", DateTime.Now.TimeOfDay.TotalSeconds)
             do! Async.Sleep DefaultTuning.SimplifyNameInitialDelay |> liftAsync 
-            let! options = getProjectInfoManager(document).TryGetOptionsForEditingDocumentOrProject(document)
+            let! _parsingOptions, projectOptions = getProjectInfoManager(document).TryGetOptionsForEditingDocumentOrProject(document)
             let! textVersion = document.GetTextVersionAsync(cancellationToken)
             let textVersionHash = textVersion.GetHashCode()
             let! _ = guard.WaitAsync(cancellationToken) |> Async.AwaitTask |> liftAsync
             try
-                match cache.TryGetValue document.Id with
-                | true, (oldTextVersionHash, diagnostics) when oldTextVersionHash = textVersionHash -> return diagnostics
+                let key = document.Id.ToString()
+                match cache.Get(key) with
+                | :? PerDocumentSavedData as data when data.Hash = textVersionHash -> return data.Diagnostics
                 | _ ->
                     let! sourceText = document.GetTextAsync()
                     let checker = getChecker document
-                    let! _, _, checkResults = checker.ParseAndCheckDocument(document, options, sourceText = sourceText, allowStaleResults = true, userOpName=userOpName)
+                    let! _, _, checkResults = checker.ParseAndCheckDocument(document, projectOptions, sourceText = sourceText, userOpName=userOpName)
                     let! symbolUses = checkResults.GetAllUsesOfAllSymbolsInFile() |> liftAsync
                     let mutable result = ResizeArray()
                     let symbolUses =
                         symbolUses
+                        |> Array.filter (fun symbolUse -> not symbolUse.IsFromOpenStatement)
                         |> Array.Parallel.map (fun symbolUse ->
                             let lineStr = sourceText.Lines.[Line.toZ symbolUse.RangeAlternate.StartLine].ToString()
                             // for `System.DateTime.Now` it returns ([|"System"; "DateTime"|], "Now")
-                            let plid, name = QuickParse.GetPartialLongNameEx(lineStr, symbolUse.RangeAlternate.EndColumn - 1)
+                            let partialName = QuickParse.GetPartialLongNameEx(lineStr, symbolUse.RangeAlternate.EndColumn - 1)
                             // `symbolUse.RangeAlternate.Start` does not point to the start of plid, it points to start of `name`,
                             // so we have to calculate plid's start ourselves.
-                            let plidStartCol = symbolUse.RangeAlternate.EndColumn - name.Length - (getPlidLength plid)
-                            symbolUse, plid, plidStartCol, name)
+                            let plidStartCol = symbolUse.RangeAlternate.EndColumn - partialName.PartialIdent.Length - (getPlidLength partialName.QualifyingIdents)
+                            symbolUse, partialName.QualifyingIdents, plidStartCol, partialName.PartialIdent)
                         |> Array.filter (fun (_, plid, _, name) -> name <> "" && not (List.isEmpty plid))
                         |> Array.groupBy (fun (symbolUse, _, plidStartCol, _) -> symbolUse.RangeAlternate.StartLine, plidStartCol)
                         |> Array.map (fun (_, xs) -> xs |> Array.maxBy (fun (symbolUse, _, _, _) -> symbolUse.RangeAlternate.EndColumn))
@@ -117,8 +119,11 @@ type internal SimplifyNameDiagnosticAnalyzer() =
                                        properties = (dict [SimplifyNameDiagnosticAnalyzer.LongIdentPropertyKey, relativeName]).ToImmutableDictionary()))
                     
                     let diagnostics = result.ToImmutableArray()
-                    cache.Remove(document.Id) |> ignore
-                    cache.Add(document.Id, (textVersionHash, diagnostics))
+                    cache.Remove(key) |> ignore
+                    let data = { Hash = textVersionHash; Diagnostics=diagnostics }
+                    let cacheItem = CacheItem(key, data)
+                    let policy = CacheItemPolicy(SlidingExpiration=DefaultTuning.PerDocumentSavedDataSlidingWindow)
+                    cache.Set(cacheItem, policy)
                     return diagnostics
             finally guard.Release() |> ignore
         } 

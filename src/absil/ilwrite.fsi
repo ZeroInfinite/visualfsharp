@@ -1,4 +1,4 @@
-// Copyright (c) Microsoft Corporation.  All Rights Reserved.  Licensed under the Apache License, Version 2.0.  See License.txt in the project root for license information.
+// Copyright (c) Microsoft Corporation.  All Rights Reserved.  See License.txt in the project root for license information.
 
 /// The IL Binary writer.
 module internal Microsoft.FSharp.Compiler.AbstractIL.ILBinaryWriter 
@@ -30,4 +30,4 @@ type options =
    dumpDebugInfo : bool }
 
 /// Write a binary to the file system. Extra configuration parameters can also be specified. 
-val WriteILBinary: filename: string * options:  options * input: ILModuleDef -> unit
+val WriteILBinary: filename: string * options:  options * input: ILModuleDef * (ILAssemblyRef -> ILAssemblyRef) -> unit

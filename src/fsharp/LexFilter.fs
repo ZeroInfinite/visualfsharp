@@ -1,10 +1,9 @@
-// Copyright (c) Microsoft Corporation.  All Rights Reserved.  Licensed under the Apache License, Version 2.0.  See License.txt in the project root for license information.
+// Copyright (c) Microsoft Corporation.  All Rights Reserved.  See License.txt in the project root for license information.
 
 /// LexFilter - process the token stream prior to parsing.
 /// Implements the offside rule and a copule of other lexical transformations.
 module internal Microsoft.FSharp.Compiler.LexFilter
 
-open Internal.Utilities
 open Internal.Utilities.Text.Lexing
 open Microsoft.FSharp.Compiler 
 open Microsoft.FSharp.Compiler.AbstractIL
@@ -13,7 +12,6 @@ open Microsoft.FSharp.Compiler.AbstractIL.Internal.Library
 open Microsoft.FSharp.Compiler.AbstractIL.Diagnostics
 open Microsoft.FSharp.Compiler.Ast
 open Microsoft.FSharp.Compiler.ErrorLogger
-open Microsoft.FSharp.Compiler.Lib
 open Microsoft.FSharp.Compiler.Parser
 open Microsoft.FSharp.Compiler.Lexhelp
 
@@ -446,7 +444,7 @@ type TokenTup =
 let (|TyparsCloseOp|_|) (txt:string) = 
     let angles = txt |> Seq.takeWhile (fun c -> c = '>') |> Seq.toList
     let afterAngles = txt |> Seq.skipWhile (fun c -> c = '>') |> Seq.toList
-    if angles.Length = 0 then None else
+    if List.isEmpty angles then None else
 
     let afterOp = 
         match (new System.String(Array.ofSeq afterAngles)) with 
@@ -671,8 +669,11 @@ type LexFilterImpl (lightSyntaxStatus:LightSyntaxStatus, compilingFsLib, lexer, 
                       -> unindentationLimit false rest
 
             // 'f ...{' places no limit until we hit a CtxtLetDecl etc... 
-            | _,(CtxtParen (LBRACE,_) :: CtxtVanilla _ :: CtxtSeqBlock _ :: rest)
-            | _,(CtxtSeqBlock _ :: CtxtParen(LBRACE,_) :: CtxtVanilla _ :: CtxtSeqBlock _ :: rest)
+            // 'f ...[' places no limit until we hit a CtxtLetDecl etc... 
+            // 'f ...[|' places no limit until we hit a CtxtLetDecl etc... 
+            | _,(CtxtParen ((LBRACE | LBRACK | LBRACK_BAR),_) :: CtxtSeqBlock _ :: rest)
+            | _,(CtxtParen ((LBRACE | LBRACK | LBRACK_BAR),_) :: CtxtVanilla _ :: CtxtSeqBlock _ :: rest)
+            | _,(CtxtSeqBlock _ :: CtxtParen((LBRACE | LBRACK | LBRACK_BAR),_) :: CtxtVanilla _ :: CtxtSeqBlock _ :: rest)
                       -> unindentationLimit false rest
 
 
@@ -1050,7 +1051,7 @@ type LexFilterImpl (lightSyntaxStatus:LightSyntaxStatus, compilingFsLib, lexer, 
             | Parser.EOF _ -> false
             | _ -> 
                 not (isSameLine()) ||  
-                (match peekNextToken() with TRY | MATCH | IF | LET _ | FOR | WHILE -> true | _ -> false) 
+                (match peekNextToken() with TRY | MATCH | MATCH_BANG | IF | LET _ | FOR | WHILE -> true | _ -> false) 
 
         // Look for '=' or '.Id.id.id = ' after an identifier
         let rec isLongIdentEquals token = 
@@ -2033,7 +2034,7 @@ type LexFilterImpl (lightSyntaxStatus:LightSyntaxStatus, compilingFsLib, lexer, 
             pushCtxt tokenTup (CtxtIf (tokenStartPos))
             returnToken tokenLexbufState token
 
-        | MATCH, _   -> 
+        | (MATCH | MATCH_BANG), _   -> 
             if debug then dprintf "MATCH, pushing CtxtMatch(%a)\n" outputPos tokenStartPos
             pushCtxt tokenTup (CtxtMatch (tokenStartPos))
             returnToken tokenLexbufState token

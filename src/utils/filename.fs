@@ -1,4 +1,4 @@
-// Copyright (c) Microsoft Corporation.  All Rights Reserved.  Licensed under the Apache License, Version 2.0.  See License.txt in the project root for license information.
+// Copyright (c) Microsoft Corporation.  All Rights Reserved.  See License.txt in the project root for license information.
 
 module internal Internal.Utilities.Filename
 
@@ -14,7 +14,7 @@ let checkPathForIllegalChars  =
             if chars.Contains c then raise(IllegalFileNameChar(path, c)))
 
 // Case sensitive (original behaviour preserved).
-let checkSuffix (x:string) (y:string) = x.EndsWith(y,System.StringComparison.Ordinal) 
+let checkSuffix (x:string) (y:string) = x.EndsWithOrdinal(y) 
 
 let hasExtensionWithValidate (validate:bool) (s:string) = 
     if validate then (checkPathForIllegalChars s) |> ignore

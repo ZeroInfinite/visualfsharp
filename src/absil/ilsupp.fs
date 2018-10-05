@@ -1,4 +1,4 @@
-// Copyright (c) Microsoft Corporation.  All Rights Reserved.  Licensed under the Apache License, Version 2.0.  See License.txt in the project root for license information.
+// Copyright (c) Microsoft Corporation.  All Rights Reserved.  See License.txt in the project root for license information.
 
 module internal Microsoft.FSharp.Compiler.AbstractIL.Internal.Support
 
@@ -600,11 +600,11 @@ let linkNativeResources (unlinkedResources:byte[] list)  (ulLinkedResourceBaseRV
                 if outputFilePath = "" then 
                     [ FileSystem.GetTempPathShim() ]
                 else
-                    [ FileSystem.GetTempPathShim() ; (outputFilePath ^ "\\") ]
+                    [ FileSystem.GetTempPathShim() ; (outputFilePath + "\\") ]
 
             // Get a unique random file
             let rec GetUniqueRandomFileName(path) =
-                let tfn =  path ^ System.IO.Path.GetRandomFileName()
+                let tfn =  path + System.IO.Path.GetRandomFileName()
                 if FileSystem.SafeExists(tfn) then
                     GetUniqueRandomFileName(path)
                 else
@@ -614,7 +614,7 @@ let linkNativeResources (unlinkedResources:byte[] list)  (ulLinkedResourceBaseRV
             let machine = if 2 = nPEFileType then "X64" else "X86"
             let cmdLineArgsPreamble = sprintf "/NOLOGO /READONLY /MACHINE:%s" machine
 
-            let cvtres = corSystemDir^"cvtres.exe "
+            let cvtres = corSystemDir + "cvtres.exe "
 
             let createCvtresArgs path =
                 let tempObjFileName = GetUniqueRandomFileName(path)
@@ -624,7 +624,7 @@ let linkNativeResources (unlinkedResources:byte[] list)  (ulLinkedResourceBaseRV
                 for _ulr in unlinkedResources do
                     let tempResFileName = GetUniqueRandomFileName(path)
                     resFiles <- tempResFileName :: resFiles ; 
-                    cmdLineArgs <- cmdLineArgs ^ " \"" ^ tempResFileName ^ "\""
+                    cmdLineArgs <- cmdLineArgs + " \"" + tempResFileName + "\""
                 let trf = resFiles
                 let cmd = cmdLineArgs
                 cmd,tempObjFileName,trf
@@ -641,7 +641,7 @@ let linkNativeResources (unlinkedResources:byte[] list)  (ulLinkedResourceBaseRV
                 tempResFiles <- files
                 (invoc,tmp,files) 
 
-            let cvtresInvocation = cvtres ^ cmdLineArgs
+            let cvtresInvocation = cvtres + cmdLineArgs
 
             try
                 let mutable iFiles = 0
@@ -1230,9 +1230,6 @@ let pdbMethodGetToken (meth:PdbMethod) : int32 =
     let token = meth.symMethod.Token
     token.GetToken()
   
-let pdbMethodGetRootScope (meth:PdbMethod) : PdbMethodScope = 
-    { symScope = meth.symMethod.RootScope }
-
 let pdbMethodGetSequencePoints (meth:PdbMethod) : PdbSequencePoint array =
     let  pSize = meth.symMethod.SequencePointCount
     let offsets = Array.zeroCreate pSize

@@ -1,4 +1,4 @@
-// Copyright (c) Microsoft Corporation.  All Rights Reserved.  Licensed under the Apache License, Version 2.0.  See License.txt in the project root for license information.
+// Copyright (c) Microsoft Corporation.  All Rights Reserved.  See License.txt in the project root for license information.
 
 /// <summary>This namespace contains constructs for reflecting on the representation of
 /// F# values and types. It augments the design of System.Reflection.</summary>
@@ -70,8 +70,6 @@ type FSharpValue =
     /// <returns>A function to read the specified field from the record.</returns>
     static member PreComputeRecordFieldReader : info:PropertyInfo -> (obj -> obj)
 
-// These APIs are only internal for portable profile, 7,78 and 259 of FSHarp.Core.dll --- those profiles System.Reflection.BindingFlags
-#if !FX_NO_SYSTEM_BINDINGFLAGS
     /// <summary>Creates an instance of a record type.</summary>
     ///
     /// <remarks>Assumes the given input is a record type.</remarks>
@@ -188,7 +186,6 @@ type FSharpValue =
     /// <exception cref="System.ArgumentException">Thrown when the input type is not an F# exception.</exception>
     /// <returns>The fields from the given exception.</returns>
     static member GetExceptionFields:  exn:obj * ?bindingFlags:BindingFlags  -> obj[]
-#endif
 
     /// <summary>Creates an instance of a tuple type</summary>
     ///
@@ -263,7 +260,6 @@ type FSharpValue =
 /// <summary>Contains operations associated with constructing and analyzing F# types such as records, unions and tuples</summary>
 type FSharpType =
 
-#if !FX_NO_SYSTEM_BINDINGFLAGS
     /// <summary>Reads all the fields from a record value, in declaration order</summary>
     ///
     /// <remarks>Assumes the given input is a record value. If not, ArgumentException is raised.</remarks>
@@ -308,8 +304,6 @@ type FSharpType =
     /// <param name="bindingFlags">Optional binding flags.</param>
     /// <returns>True if the type check is an F# exception.</returns>
     static member IsExceptionRepresentation: exceptionType:Type * ?bindingFlags:BindingFlags -> bool
-
-#endif
 
     /// <summary>Returns a <c>System.Type</c> representing the F# function type with the given domain and range</summary>
     /// <param name="domain">The input type of the function.</param>
@@ -529,9 +523,5 @@ namespace Microsoft.FSharp.Reflection
 open Microsoft.FSharp.Core
 
 module internal ReflectionUtils = 
-#if FX_NO_SYSTEM_BINDINGFLAGS
-    type BindingFlags = ReflectionAdapters.BindingFlags
-#else
     type BindingFlags = System.Reflection.BindingFlags
-#endif
     val toBindingFlags  : allowAccessToNonPublicMembers : bool -> BindingFlags

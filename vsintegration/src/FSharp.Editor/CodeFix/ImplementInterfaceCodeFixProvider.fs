@@ -1,6 +1,6 @@
-﻿// Copyright (c) Microsoft Corporation.  All Rights Reserved.  Licensed under the Apache License, Version 2.0.  See License.txt in the project root for license information.
+﻿// Copyright (c) Microsoft Corporation.  All Rights Reserved.  See License.txt in the project root for license information.
 
-namespace rec Microsoft.VisualStudio.FSharp.Editor
+namespace Microsoft.VisualStudio.FSharp.Editor
 
 open System
 open System.Composition
@@ -22,29 +22,28 @@ type internal InterfaceState =
     { InterfaceData: InterfaceData 
       EndPosOfWith: pos option
       AppendBracketAt: int option
-      Tokens: FSharpTokenInfo list }
+      Tokens: Tokenizer.SavedTokenInfo[] }
 
 [<ExportCodeFixProvider(FSharpConstants.FSharpLanguageName, Name = "ImplementInterface"); Shared>]
 type internal FSharpImplementInterfaceCodeFixProvider
     [<ImportingConstructor>]
     (
         checkerProvider: FSharpCheckerProvider, 
-        projectInfoManager: ProjectInfoManager
+        projectInfoManager: FSharpProjectOptionsManager
     ) =
     inherit CodeFixProvider()
     let fixableDiagnosticIds = ["FS0366"]
     let checker = checkerProvider.Checker
     static let userOpName = "ImplementInterfaceCodeFixProvider"
 
-    let queryInterfaceState appendBracketAt (pos: pos) tokens (ast: Ast.ParsedInput) =
+    let queryInterfaceState appendBracketAt (pos: pos) (tokens: Tokenizer.SavedTokenInfo[]) (ast: Ast.ParsedInput) =
         asyncMaybe {
             let line = pos.Line - 1
-            let column = pos.Column
             let! iface = InterfaceStubGenerator.tryFindInterfaceDeclaration pos ast
             let endPosOfWidth =
                 tokens 
-                |> List.tryPick (fun (t: FSharpTokenInfo) ->
-                        if t.CharClass = FSharpTokenCharKind.Keyword && t.LeftColumn >= column && t.TokenName = "WITH" then
+                |> Array.tryPick (fun (t: Tokenizer.SavedTokenInfo) ->
+                        if t.Tag = FSharpTokenTag.WITH || t.Tag = FSharpTokenTag.OWITH then
                             Some (Pos.fromZ line (t.RightColumn + 1))
                         else None)
             let appendBracketAt =
@@ -70,8 +69,8 @@ type internal FSharpImplementInterfaceCodeFixProvider
                 getLineIdent lineStr + indentSize
             | InterfaceData.ObjExpr _ as iface ->
                 state.Tokens 
-                |> List.tryPick (fun (t: FSharpTokenInfo) ->
-                            if t.CharClass = FSharpTokenCharKind.Keyword && t.TokenName = "NEW" then
+                |> Array.tryPick (fun (t: Tokenizer.SavedTokenInfo) ->
+                            if t.Tag = FSharpTokenTag.NEW then
                                 Some (t.LeftColumn + indentSize)
                             else None)
                 // There is no reference point, we indent the content at the start column of the interface
@@ -130,8 +129,8 @@ type internal FSharpImplementInterfaceCodeFixProvider
                             title)                
                     context.RegisterCodeFix(codeAction, diagnostics)
 
-                registerCodeFix SR.ImplementInterface.Value true
-                registerCodeFix SR.ImplementInterfaceWithoutTypeAnnotation.Value false
+                registerCodeFix (SR.ImplementInterface()) true
+                registerCodeFix (SR.ImplementInterfaceWithoutTypeAnnotation()) false
             else 
                 ()
             
@@ -139,28 +138,28 @@ type internal FSharpImplementInterfaceCodeFixProvider
 
     override __.RegisterCodeFixesAsync context : Task =
         asyncMaybe {
-            let! options = projectInfoManager.TryGetOptionsForEditingDocumentOrProject context.Document
+            let! parsingOptions, projectOptions = projectInfoManager.TryGetOptionsForEditingDocumentOrProject context.Document
             let cancellationToken = context.CancellationToken
             let! sourceText = context.Document.GetTextAsync(cancellationToken)
-            let! _, parsedInput, checkFileResults = checker.ParseAndCheckDocument(context.Document, options, sourceText = sourceText, allowStaleResults = true, userOpName = userOpName)
+            let! _, parsedInput, checkFileResults = checker.ParseAndCheckDocument(context.Document, projectOptions, sourceText = sourceText, userOpName = userOpName)
             let textLine = sourceText.Lines.GetLineFromPosition context.Span.Start
-            let defines = CompilerEnvironment.GetCompilationDefinesForEditing(context.Document.FilePath, options.OtherOptions |> Seq.toList)
+            let defines = CompilerEnvironment.GetCompilationDefinesForEditing parsingOptions
             // Notice that context.Span doesn't return reliable ranges to find tokens at exact positions.
             // That's why we tokenize the line and try to find the last successive identifier token
             let tokens = Tokenizer.tokenizeLine(context.Document.Id, sourceText, context.Span.Start, context.Document.FilePath, defines)
             let startLeftColumn = context.Span.Start - textLine.Start
-            let rec tryFindIdentifierToken acc tokens =
-               match tokens with
-               | t :: remainingTokens when t.LeftColumn < startLeftColumn ->
+            let rec tryFindIdentifierToken acc i =
+               if i >= tokens.Length then acc else
+               match tokens.[i] with
+               | t when t.LeftColumn < startLeftColumn ->
                    // Skip all the tokens starting before the context
-                   tryFindIdentifierToken acc remainingTokens
-               | t :: remainingTokens when t.Tag = FSharpTokenTag.Identifier ->
-                   tryFindIdentifierToken (Some t) remainingTokens
-               | t :: remainingTokens when t.Tag = FSharpTokenTag.DOT || Option.isNone acc ->
-                   tryFindIdentifierToken acc remainingTokens
-               | _ :: _ 
-               | [] -> acc
-            let! token = tryFindIdentifierToken None tokens
+                   tryFindIdentifierToken acc (i+1)
+               | t when t.Tag = FSharpTokenTag.Identifier ->
+                   tryFindIdentifierToken (Some t) (i+1)
+               | t when t.Tag = FSharpTokenTag.DOT || Option.isNone acc ->
+                   tryFindIdentifierToken acc (i+1)
+               | _ -> acc
+            let! token = tryFindIdentifierToken None 0
             let fixupPosition = textLine.Start + token.RightColumn
             let interfacePos = Pos.fromZ textLine.LineNumber token.RightColumn
             // We rely on the observation that the lastChar of the context should be '}' if that character is present

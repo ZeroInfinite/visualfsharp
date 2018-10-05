@@ -1,4 +1,4 @@
-﻿// Copyright (c) Microsoft Corporation.  All Rights Reserved.  Licensed under the Apache License, Version 2.0.  See License.txt in the project root for license information.
+﻿// Copyright (c) Microsoft Corporation.  All Rights Reserved.  See License.txt in the project root for license information.
 
 namespace Microsoft.VisualStudio.FSharp.Editor
 
@@ -18,8 +18,6 @@ open Microsoft.CodeAnalysis.SolutionCrawler
 open Microsoft.FSharp.Compiler
 open Microsoft.FSharp.Compiler.SourceCodeServices
 open Microsoft.FSharp.Compiler.Range
-
-open Microsoft.VisualStudio.FSharp.LanguageService
 
 #if PROJECT_ANALYSIS
 // Project-wide error analysis.  We don't enable this because ParseAndCheckProject checks projects against the versions of the files

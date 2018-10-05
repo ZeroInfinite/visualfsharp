@@ -1,4 +1,4 @@
-// Copyright (c) Microsoft Corporation.  All Rights Reserved.  Licensed under the Apache License, Version 2.0.  See License.txt in the project root for license information.
+// Copyright (c) Microsoft Corporation.  All Rights Reserved.  See License.txt in the project root for license information.
 
 module internal Microsoft.FSharp.Compiler.AbstractIL.Internal.BinaryConstants 
 
@@ -838,6 +838,7 @@ let nt_ARRAY       = 0x2Auy
 let nt_LPSTRUCT    = 0x2Buy
 let nt_CUSTOMMARSHALER = 0x2Cuy
 let nt_ERROR       = 0x2Duy
+let nt_LPUTF8STR   = 0x30uy
 let nt_MAX = 0x50uy
 
 // From c:/clrenv.i386/Crt/Inc/i386/hs.h
@@ -894,6 +895,7 @@ let ILNativeTypeMap =
         nt_LPSTR , ILNativeType.LPSTR
         nt_LPWSTR , ILNativeType.LPWSTR
         nt_LPTSTR, ILNativeType.LPTSTR
+        nt_LPUTF8STR, ILNativeType.LPUTF8STR
         nt_IUNKNOWN , (* COM interop *) ILNativeType.IUnknown
         nt_IDISPATCH , (* COM interop *) ILNativeType.IDispatch
         nt_BYVALSTR , ILNativeType.ByValStr

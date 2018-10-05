@@ -1,4 +1,4 @@
-// Copyright (c) Microsoft Corporation.  All Rights Reserved.  Licensed under the Apache License, Version 2.0.  See License.txt in the project root for license information.
+// Copyright (c) Microsoft Corporation.  All Rights Reserved.  See License.txt in the project root for license information.
 
 namespace rec Microsoft.VisualStudio.FSharp.Editor
 
@@ -17,15 +17,15 @@ type internal UnusedDeclarationsAnalyzer() =
     inherit DocumentDiagnosticAnalyzer()
     
     static let userOpName = "UnusedDeclarationsAnalyzer"
-    let getProjectInfoManager (document: Document) = document.Project.Solution.Workspace.Services.GetService<FSharpCheckerWorkspaceService>().ProjectInfoManager
+    let getProjectInfoManager (document: Document) = document.Project.Solution.Workspace.Services.GetService<FSharpCheckerWorkspaceService>().FSharpProjectOptionsManager
     let getChecker (document: Document) = document.Project.Solution.Workspace.Services.GetService<FSharpCheckerWorkspaceService>().Checker
     let [<Literal>] DescriptorId = "FS1182"
     
     let Descriptor = 
         DiagnosticDescriptor(
             id = DescriptorId,
-            title = SR.TheValueIsUnused.Value,
-            messageFormat = SR.TheValueIsUnused.Value,
+            title = SR.TheValueIsUnused(),
+            messageFormat = SR.TheValueIsUnused(),
             category = DiagnosticCategory.Style,
             defaultSeverity = DiagnosticSeverity.Hidden,
             isEnabledByDefault = true,
@@ -35,7 +35,7 @@ type internal UnusedDeclarationsAnalyzer() =
         match symbol with
         // Determining that a record, DU or module is used anywhere requires inspecting all their enclosed entities (fields, cases and func / vals)
         // for usages, which is too expensive to do. Hence we never gray them out.
-        | :? FSharpEntity as e when e.IsFSharpRecord || e.IsFSharpUnion || e.IsInterface || e.IsFSharpModule || e.IsClass -> false
+        | :? FSharpEntity as e when e.IsFSharpRecord || e.IsFSharpUnion || e.IsInterface || e.IsFSharpModule || e.IsClass || e.IsNamespace -> false
         // FCS returns inconsistent results for override members; we're skipping these symbols.
         | :? FSharpMemberOrFunctionOrValue as f when 
                 f.IsOverrideOrExplicitInterfaceImplementation ||
@@ -94,19 +94,23 @@ type internal UnusedDeclarationsAnalyzer() =
         //#endif
         unusedRanges
 
+    override __.Priority = 80 // Default = 50
+
     override __.SupportedDiagnostics = ImmutableArray.Create Descriptor
     
     override __.AnalyzeSyntaxAsync(_, _) = Task.FromResult ImmutableArray<Diagnostic>.Empty
 
     override __.AnalyzeSemanticsAsync(document, cancellationToken) =
         asyncMaybe {
+            do! Option.guard document.FSharpOptions.CodeFixes.UnusedDeclarations
+
             do Trace.TraceInformation("{0:n3} (start) UnusedDeclarationsAnalyzer", DateTime.Now.TimeOfDay.TotalSeconds)
             do! Async.Sleep DefaultTuning.UnusedDeclarationsAnalyzerInitialDelay |> liftAsync // be less intrusive, give other work priority most of the time
             match getProjectInfoManager(document).TryGetOptionsForEditingDocumentOrProject(document) with
-            | Some options ->
+            | Some (_parsingOptions, projectOptions) ->
                 let! sourceText = document.GetTextAsync()
                 let checker = getChecker document
-                let! _, _, checkResults = checker.ParseAndCheckDocument(document, options, sourceText = sourceText, allowStaleResults = true, userOpName = userOpName)
+                let! _, _, checkResults = checker.ParseAndCheckDocument(document, projectOptions, sourceText = sourceText, userOpName = userOpName)
                 let! allSymbolUsesInFile = checkResults.GetAllUsesOfAllSymbolsInFile() |> liftAsync
                 let unusedRanges = getUnusedDeclarationRanges allSymbolUsesInFile (isScriptFile document.FilePath)
                 return

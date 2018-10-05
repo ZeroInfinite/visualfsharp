@@ -1,4 +1,4 @@
-// Copyright (c) Microsoft.  All Rights Reserved.  Licensed under the Apache License, Version 2.0.  See License.txt in the project root for license information.
+// Copyright (c) Microsoft Corporation.  All Rights Reserved.  See License.txt in the project root for license information.
 
 namespace Microsoft.Build.Tasks
 namespace Microsoft.Build.Utilities
@@ -218,8 +218,7 @@ module internal ToolLocationHelper =
         let dotNetFrameworkFolderPrefix = dotNetFrameworkVersionFolderPrefix
         let frameworkName = FrameworkName(dotNetFrameworkIdentifier, version)
 
-#if FX_NO_WIN_REGISTRY
-#else
+#if !FX_NO_WIN_REGISTRY
         let findRegistryValueUnderKey registryBaseKeyName registryKeyName registryView =
          try
             use baseKey = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, registryView)

@@ -1,10 +1,10 @@
-﻿// #Conformance #Quotations #Interop #Classes #ObjectConstructors #Attributes #Reflection 
+﻿// #Conformance #Quotations #Interop #Classes #ObjectConstructors #Attributes #Reflection #ComputationExpression
 #if TESTS_AS_APP
 module Core_quotes
 #endif
 #light
 
-#if !TESTS_AS_APP && !FX_PORTABLE_OR_NETSTANDARD
+#if !TESTS_AS_APP && !NETCOREAPP1_0
 #r "cslib.dll"
 #endif
 
@@ -352,7 +352,7 @@ module TypedTest = begin
     test "check  PropertyGet (static)" ((<@ System.DateTime.Now @> |> (function PropertyGet(None,_,[]) -> true | _ -> false))) 
     test "check  PropertyGet (instance)" ((<@ ("1").Length @> |> (function PropertyGet(Some(String("1")),_,[]) -> true | _ -> false))) 
 
-#if !FX_PORTABLE_OR_NETSTANDARD
+#if !NETCOREAPP1_0
     test "check  PropertySet (static)" ((<@ System.Environment.ExitCode <- 1 @> |> (function PropertySet(None,_,[],Int32(1)) -> true | _ -> false))) 
 #endif
     test "check  PropertySet (instance)" ((<@ ("1").Length @> |> (function PropertyGet(Some(String("1")),_,[]) -> true | _ -> false))) 
@@ -439,6 +439,28 @@ module TypedTest = begin
         test "check Mutate 1"   (<@ let mutable x = 0 in x <- 1 @> |> (function Let(v,Int32 0, VarSet(v2,Int32 1)) when v = v2 -> true | _ -> false))
 
         let q = <@ let mutable x = 0 in x <- 1 @>
+        
+        let rec getMethod (e : Expr) =
+            match e with
+            | Call(None, mi, _) -> mi
+            | Let(_,_,m) -> getMethod m
+            | Lambdas(_, e) -> getMethod e
+            | _ -> failwithf "not a lambda: %A" e
+
+        let increment (r : byref<int>) = r <- r + 1
+        let incrementMeth = getMethod <@ let mutable a = 10 in increment(&a) @>
+
+        let rec rebuild (e : Expr) =
+            match e with
+            | ExprShape.ShapeLambda(v,b) -> Expr.Lambda(v, rebuild b)
+            | ExprShape.ShapeVar(v) -> Expr.Var v
+            | ExprShape.ShapeCombination(o, args) -> ExprShape.RebuildShapeCombination(o, args |> List.map rebuild)
+
+        test "check AddressOf in call"      (try let v = Var("a", typeof<int>, true) in Expr.Let(v, Expr.Value 10, Expr.Call(incrementMeth, [Expr.AddressOf(Expr.Var v)])) |> ignore; true with _ -> false)
+        test "check AddressOf rebuild"      (try rebuild <@ let mutable a = 10 in increment(&a) @> |> ignore; true with _ -> false)
+        test "check AddressOf argument"     (<@ let mutable a = 10 in increment(&a) @> |> function Let(_, _, Call(None, _, [AddressOf(_)])) -> true | _ -> false)
+        test "check AddressOf type"         (<@ let mutable a = 10 in increment(&a) @> |> function Let(_, _, Call(None, _, [AddressOf(_) as e])) -> (try e.Type = typeof<int>.MakeByRefType() with _ -> false) | _ -> false)
+
 
     // Test basic expression splicing
     let f8383 (x:int) (y:string) = 0
@@ -521,7 +543,7 @@ module TypedTest = begin
             |   _ -> false
         end
 
-#if !FSHARP_CORE_31 && !TESTS_AS_APP && !FX_PORTABLE_OR_NETSTANDARD
+#if !FSHARP_CORE_31 && !TESTS_AS_APP && !NETCOREAPP1_0
     test "check accesses to readonly fields in ReflectedDefinitions" 
         begin
             let c1 = Class1("a")
@@ -1659,7 +1681,7 @@ module QuotationConstructionTests =
     check "vcknwwe066" (try let _ = Expr.PropertyGet(getof <@@ System.DateTime.Now @@>,[ <@@ 1 @@> ]) in false with :? ArgumentException -> true) true
     check "vcknwwe077" (Expr.PropertyGet(<@@ "3" @@>, getof <@@ "1".Length @@>)) <@@ "3".Length @@>
     check "vcknwwe088" (Expr.PropertyGet(<@@ "3" @@>, getof <@@ "1".Length @@>,[  ])) <@@ "3".Length @@>
-#if !TESTS_AS_APP && !FX_PORTABLE_OR_NETSTANDARD
+#if !TESTS_AS_APP && !NETCOREAPP1_0
     check "vcknwwe099" (Expr.PropertySet(<@@ (new System.Windows.Forms.Form()) @@>, setof <@@ (new System.Windows.Forms.Form()).Text <- "2" @@>, <@@ "3" @@> )) <@@ (new System.Windows.Forms.Form()).Text <- "3" @@>
 #endif
     check "vcknwwe099" (Expr.PropertySet(<@@ (new Foo()) @@>, setof <@@ (new Foo()).[3] <- 1 @@>, <@@ 2 @@> , [ <@@ 3 @@> ] )) <@@ (new Foo()).[3] <- 2 @@>
@@ -2281,7 +2303,7 @@ module ReflectedDefinitionOnTypesWithImplicitCodeGen =
    module M = 
       // This type has an implicit IComparable implementation, it is not accessible as a reflected definition
       type R = { x:int; y:string; z:System.DateTime }
-#if FX_PORTABLE_OR_NETSTANDARD
+#if NETCOREAPP1_0
       for m in typeof<R>.GetMethods() do 
 #else
       for m in typeof<R>.GetMethods(System.Reflection.BindingFlags.DeclaredOnly) do 
@@ -2315,7 +2337,7 @@ module ReflectedDefinitionOnTypesWithImplicitCodeGen =
 #endif
           check "celnwer35" (Quotations.Expr.TryGetReflectedDefinition(m).IsNone) true
 
-#if !FX_PORTABLE_OR_NETSTANDARD
+#if !NETCOREAPP1_0
 module BasicUsingTEsts = 
     let q1() = 
       let a = ResizeArray<_>()
@@ -3105,6 +3127,56 @@ module TestStaticCtor =
 
     testStaticCtor()
 
+
+module TestFuncNoArgs = 
+    type SomeType() = class end
+    type Test =
+        static member ParseThis (f : System.Linq.Expressions.Expression<System.Func<SomeType>>) = f
+
+    
+    type D = delegate of unit -> int
+    type D2<'T> = delegate of unit -> 'T
+
+    let testFunc() = 
+        check "cvwenklwevpo1" (match <@ new System.Func<int>(fun () -> 3) @> with Quotations.Patterns.NewDelegate(_,[],Value _) -> true | _ -> false) true
+        check "cvwenklwevpo2" (match <@ new System.Func<int,int>(fun n -> 3) @> with Quotations.Patterns.NewDelegate(_,[_],Value _) -> true | _ -> false) true
+        check "cvwenklwevpo1d" (match <@ new D(fun () -> 3) @> with Quotations.Patterns.NewDelegate(_,[],Value _) -> true | _ -> false) true
+        check "cvwenklwevpo2d" (match <@ new D2<int>(fun () -> 3) @> with Quotations.Patterns.NewDelegate(_,[],Value _) -> true | _ -> false) true
+
+    testFunc()
+
+
+    let testFunc2() = 
+        // was raising exception
+        let foo = Test.ParseThis (fun () -> SomeType())
+        check "clew0mmlvew" (foo.ToString()) "() => new SomeType()"
+
+    testFunc2()
+
+module TestMatchBang =
+    let myAsync = async {
+        do! Async.Sleep 1
+        return Some 42 }
+
+    /// Unpacks code quotations containing computation expressions (CE)
+    let (|CEDelay|CEBind|Expr|) expr =
+        match expr with
+        | Application (Lambda (_, Call (_, mDelay, [Lambda (_, innerExpr)])), _) when mDelay.Name = "Delay" -> CEDelay innerExpr
+        | Call (_, mBind, [_; Lambda (_, innerExpr)]) when mBind.Name = "Bind" -> CEBind innerExpr
+        | _ -> Expr expr
+
+    let testSimpleMatchBang() =
+        let quot1 = <@ async { match! myAsync with | Some (x: int) -> () | None -> () } @>
+        check "matchbangquot1"
+            (match quot1 with
+            | CEDelay(CEBind(IfThenElse expr)) -> Ok ()
+            | CEDelay(CEBind(expr)) -> Error "if statement (representing `match`) is missing"
+            | CEDelay(expr) -> Error "Bind is incorrect"
+            | expr -> Error "Delay is incorrect")
+            (Ok ())
+
+    testSimpleMatchBang()        
+    
 
 #if !FX_RESHAPED_REFLECTION
 module TestAssemblyAttributes = 

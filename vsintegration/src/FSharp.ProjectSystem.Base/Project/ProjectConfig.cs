@@ -1,4 +1,4 @@
-// Copyright (c) Microsoft Corporation.  All Rights Reserved.  Licensed under the Apache License, Version 2.0.  See License.txt in the project root for license information.
+// Copyright (c) Microsoft Corporation.  All Rights Reserved.  See License.txt in the project root for license information.
 
 using Microsoft.VisualStudio.Shell.Interop;
 using Microsoft.VisualStudio.OLE.Interop;
@@ -12,7 +12,6 @@ using System.IO;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
-using Microsoft.VisualStudio.FSharp.LanguageService;
 using Microsoft.Win32;
 
 namespace Microsoft.VisualStudio.FSharp.ProjectSystem
@@ -426,6 +425,18 @@ namespace Microsoft.VisualStudio.FSharp.ProjectSystem
             }
         }
 
+        public bool UseStandardResourceNames
+        {
+            get
+            {
+                return getNullableBool(ProjectFileConstants.UseStandardResourceNames) ?? true;
+            }
+            set
+            {
+                setBool(ProjectFileConstants.UseStandardResourceNames, value);
+            }
+        }
+
         public bool Prefer32Bit
         {
             get
@@ -539,6 +550,18 @@ namespace Microsoft.VisualStudio.FSharp.ProjectSystem
             set
             {
                 SetConfigurationProperty(ProjectFileConstants.WarningsAsErrors, value);
+            }
+        }
+
+        public string TreatSpecificWarningsAsWarnings
+        {
+            get
+            {
+                return GetConfigurationProperty(ProjectFileConstants.WarningsNotAsErrors, false);
+            }
+            set
+            {
+                SetConfigurationProperty(ProjectFileConstants.WarningsNotAsErrors, value);
             }
         }
 

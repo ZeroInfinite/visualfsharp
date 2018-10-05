@@ -1,4 +1,4 @@
-// Copyright (c) Microsoft Corporation.  All Rights Reserved.  Licensed under the Apache License, Version 2.0.  See License.txt in the project root for license information.
+// Copyright (c) Microsoft Corporation.  All Rights Reserved.  See License.txt in the project root for license information.
 
 // # FSComp.SR.opts
 
@@ -188,7 +188,7 @@ module ResponseFile =
         let parseLine (l: string) =
             match l with
             | s when String.IsNullOrWhiteSpace(s) -> None
-            | s when l.StartsWith("#") -> Some (ResponseFileLine.Comment (s.TrimStart('#')))
+            | s when l.StartsWithOrdinal("#") -> Some (ResponseFileLine.Comment (s.TrimStart('#')))
             | s -> Some (ResponseFileLine.CompilerOptionSpec (s.Trim()))
 
         try
@@ -224,7 +224,7 @@ let ParseCompilerOptions (collectOtherArgument : string -> unit, blocks: Compile
       if opt.Length = 2 || isSlashOpt opt then
         opt <- opt.[1 ..]
       // else, it should be a non-abbreviated option starting with "--"
-      elif opt.Length > 3 && opt.StartsWith("--") then
+      elif opt.Length > 3 && opt.StartsWithOrdinal("--") then
         opt <- opt.[2 ..]
       else
         opt <- ""
@@ -247,19 +247,19 @@ let ParseCompilerOptions (collectOtherArgument : string -> unit, blocks: Compile
   
   let getSwitchOpt (opt : string) =
     // if opt is a switch, strip the  '+' or '-'
-    if opt <> "--" && opt.Length > 1 && (opt.EndsWith("+",StringComparison.Ordinal) || opt.EndsWith("-",StringComparison.Ordinal)) then
+    if opt <> "--" && opt.Length > 1 && (opt.EndsWithOrdinal("+") || opt.EndsWithOrdinal("-")) then
       opt.[0 .. opt.Length - 2]
     else
       opt
       
   let getSwitch (s: string) = 
     let s = (s.Split([|':'|])).[0]
-    if s <> "--" && s.EndsWith("-",StringComparison.Ordinal) then OptionSwitch.Off else OptionSwitch.On
+    if s <> "--" && s.EndsWithOrdinal("-") then OptionSwitch.Off else OptionSwitch.On
 
   let rec processArg args =    
     match args with 
     | [] -> ()
-    | ((rsp: string) :: t) when rsp.StartsWith("@") ->
+    | ((rsp: string) :: t) when rsp.StartsWithOrdinal("@") ->
         let responseFileOptions =
             let fullpath =
                 try
@@ -380,9 +380,7 @@ let ParseCompilerOptions (collectOtherArgument : string -> unit, blocks: Compile
         let rest = attempt specs 
         processArg rest
   
-  let result = processArg args
-  result
-
+  processArg args
 
 //----------------------------------------------------------------------------
 // Compiler options
@@ -459,10 +457,10 @@ let (++) x s = x @ [s]
 
 let SetTarget (tcConfigB : TcConfigBuilder)(s : string) =
     match s.ToLowerInvariant() with
-    | "exe"     ->  tcConfigB.target <- ConsoleExe
-    | "winexe"  ->  tcConfigB.target <- WinExe
-    | "library" ->  tcConfigB.target <- Dll
-    | "module"  ->  tcConfigB.target <- Module
+    | "exe"     ->  tcConfigB.target <- CompilerTarget.ConsoleExe
+    | "winexe"  ->  tcConfigB.target <- CompilerTarget.WinExe
+    | "library" ->  tcConfigB.target <- CompilerTarget.Dll
+    | "module"  ->  tcConfigB.target <- CompilerTarget.Module
     | _         ->  error(Error(FSComp.SR.optsUnrecognizedTarget(s),rangeCmdArgs))
 
 let SetDebugSwitch (tcConfigB : TcConfigBuilder) (dtype : string option) (s : OptionSwitch) =
@@ -472,7 +470,13 @@ let SetDebugSwitch (tcConfigB : TcConfigBuilder) (dtype : string option) (s : Op
        | "portable" ->  tcConfigB.portablePDB <- true;  tcConfigB.embeddedPDB <- false; tcConfigB.jitTracking <- true; tcConfigB.ignoreSymbolStoreSequencePoints <- true
        | "pdbonly" ->   tcConfigB.portablePDB <- false; tcConfigB.embeddedPDB <- false; tcConfigB.jitTracking <- false
        | "embedded" ->  tcConfigB.portablePDB <- true;  tcConfigB.embeddedPDB <- true;  tcConfigB.jitTracking <- true; tcConfigB.ignoreSymbolStoreSequencePoints <- true
+#if FX_NO_PDB_WRITER
+       // When building on the coreclr, full means portable
+       | "full" ->      tcConfigB.portablePDB <- true; tcConfigB.embeddedPDB <- false; tcConfigB.jitTracking <- true
+#else
        | "full" ->      tcConfigB.portablePDB <- false; tcConfigB.embeddedPDB <- false; tcConfigB.jitTracking <- true
+#endif
+
        | _ -> error(Error(FSComp.SR.optsUnrecognizedDebugType(s), rangeCmdArgs))
     | None ->           tcConfigB.portablePDB <- false; tcConfigB.embeddedPDB <- false; tcConfigB.jitTracking <- s = OptionSwitch.On;
     tcConfigB.debuginfo <- s = OptionSwitch.On
@@ -550,34 +554,49 @@ let inputFileFlagsFsc tcConfigB = inputFileFlagsBoth tcConfigB
 // OptionBlock: Errors and warnings
 //---------------------------------
 
-let errorsAndWarningsFlags (tcConfigB : TcConfigBuilder) = 
+let errorsAndWarningsFlags (tcConfigB: TcConfigBuilder) = 
+    let trimFS (s:string) = if s.StartsWithOrdinal("FS") = true then s.Substring(2) else s
+    let trimFStoInt (s:string) =
+        try
+            Some (int32 (trimFS s))
+        with _ ->
+            errorR(Error(FSComp.SR.buildArgInvalidInt(s),rangeCmdArgs))
+            None
     [
-        CompilerOption("warnaserror", tagNone, OptionSwitch(fun switch   -> tcConfigB.globalWarnAsError <- switch <> OptionSwitch.Off), None,
-                            Some (FSComp.SR.optsWarnaserrorPM())); 
+        CompilerOption("warnaserror", tagNone, OptionSwitch(fun switch ->
+            tcConfigB.errorSeverityOptions <-
+                { tcConfigB.errorSeverityOptions with
+                    GlobalWarnAsError = switch <> OptionSwitch.Off }), None, Some (FSComp.SR.optsWarnaserrorPM())) 
 
-        CompilerOption("warnaserror", tagWarnList, OptionIntListSwitch (fun n switch -> 
-                                                                    if switch = OptionSwitch.Off then 
-                                                                        tcConfigB.specificWarnAsError <- ListSet.remove (=) n tcConfigB.specificWarnAsError ;
-                                                                        tcConfigB.specificWarnAsWarn  <- ListSet.insert (=) n tcConfigB.specificWarnAsWarn
-                                                                    else 
-                                                                        tcConfigB.specificWarnAsWarn  <- ListSet.remove (=) n tcConfigB.specificWarnAsWarn ;
-                                                                        tcConfigB.specificWarnAsError <- ListSet.insert (=) n tcConfigB.specificWarnAsError), None,
-                            Some (FSComp.SR.optsWarnaserror()));
-           
-        CompilerOption("warn", tagInt, OptionInt (fun n -> 
-                                                     tcConfigB.globalWarnLevel <- 
-                                                     if (n >= 0 && n <= 5) then n 
-                                                     else error(Error(FSComp.SR.optsInvalidWarningLevel(n),rangeCmdArgs))), None,
-                            Some (FSComp.SR.optsWarn()));
-           
-        CompilerOption("nowarn", tagWarnList, OptionStringList (fun n -> tcConfigB.TurnWarningOff(rangeCmdArgs, n)), None,
-                            Some (FSComp.SR.optsNowarn())); 
+        CompilerOption("warnaserror", tagWarnList, OptionStringListSwitch (fun n switch ->
+            match trimFStoInt n with
+            | Some n ->
+                let options = tcConfigB.errorSeverityOptions
+                tcConfigB.errorSeverityOptions <-
+                    if switch = OptionSwitch.Off then
+                        { options with
+                            WarnAsError = ListSet.remove (=) n options.WarnAsError
+                            WarnAsWarn = ListSet.insert (=) n options.WarnAsWarn }
+                    else
+                        { options with
+                            WarnAsError = ListSet.insert (=) n options.WarnAsError
+                            WarnAsWarn = ListSet.remove (=) n options.WarnAsWarn }
+            | None -> ()), None, Some (FSComp.SR.optsWarnaserror()))
 
-        CompilerOption("warnon", tagWarnList, OptionStringList (fun n -> tcConfigB.TurnWarningOn(rangeCmdArgs,n)), None,
-                            Some(FSComp.SR.optsWarnOn()));                             
+        CompilerOption("warn", tagInt, OptionInt (fun n ->
+                 tcConfigB.errorSeverityOptions <-
+                     { tcConfigB.errorSeverityOptions with
+                         WarnLevel = if (n >= 0 && n <= 5) then n else error(Error (FSComp.SR.optsInvalidWarningLevel(n), rangeCmdArgs)) }
+            ), None, Some (FSComp.SR.optsWarn()))
+
+        CompilerOption("nowarn", tagWarnList, OptionStringList (fun n ->
+            tcConfigB.TurnWarningOff(rangeCmdArgs, trimFS n)), None, Some (FSComp.SR.optsNowarn()))
+
+        CompilerOption("warnon", tagWarnList, OptionStringList (fun n ->
+            tcConfigB.TurnWarningOn(rangeCmdArgs, trimFS n)), None, Some (FSComp.SR.optsWarnOn()))
         
-        CompilerOption("consolecolors", tagNone, OptionSwitch (fun switch -> enableConsoleColoring <- switch = OptionSwitch.On), None, 
-                            Some (FSComp.SR.optsConsoleColors()))
+        CompilerOption("consolecolors", tagNone, OptionSwitch (fun switch ->
+            enableConsoleColoring <- switch = OptionSwitch.On), None, Some (FSComp.SR.optsConsoleColors()))
     ]
 
 
@@ -629,7 +648,7 @@ let outputFileFlagsFsc (tcConfigB : TcConfigBuilder) =
         CompilerOption("sig", tagFile, OptionString (setSignatureFile tcConfigB), None,
                            Some (FSComp.SR.optsSig()))    
                            
-        CompilerOption("nocopyfsharpcore", tagNone, OptionUnit (fun () -> tcConfigB.copyFSharpCore <- false), None, Some (FSComp.SR.optsNoCopyFsharpCore()))
+        CompilerOption("nocopyfsharpcore", tagNone, OptionUnit (fun () -> tcConfigB.copyFSharpCore <- CopyFSharpCoreFlag.No), None, Some (FSComp.SR.optsNoCopyFsharpCore()))
     ]
 
 
@@ -719,17 +738,15 @@ let libFlagAbbrev (tcConfigB : TcConfigBuilder) =
 let codePageFlag (tcConfigB : TcConfigBuilder) = 
         CompilerOption("codepage", tagInt, OptionInt (fun n -> 
                      try 
-                         System.Text.Encoding.GetEncodingShim(n) |> ignore
+                         System.Text.Encoding.GetEncoding(n) |> ignore
                      with :? System.ArgumentException as err -> 
                          error(Error(FSComp.SR.optsProblemWithCodepage(n,err.Message),rangeCmdArgs))
 
                      tcConfigB.inputCodePage <- Some(n)), None,
                            Some (FSComp.SR.optsCodepage()))
 
-#if PREFERRED_UI_LANG
 let preferredUiLang (tcConfigB: TcConfigBuilder) = 
         CompilerOption("preferreduilang", tagString, OptionString (fun s -> tcConfigB.preferredUiLang <- Some(s)), None, Some(FSComp.SR.optsPreferredUiLang()))
-#endif
 
 let utf8OutputFlag (tcConfigB: TcConfigBuilder) = 
         CompilerOption("utf8output", tagNone, OptionUnit (fun () -> tcConfigB.utf8output <- true), None,
@@ -758,9 +775,7 @@ let advancedFlagsBoth tcConfigB =
     [
         yield codePageFlag tcConfigB
         yield utf8OutputFlag tcConfigB
-#if PREFERRED_UI_LANG
         yield preferredUiLang tcConfigB
-#endif
         yield fullPathsFlag tcConfigB
         yield libFlag tcConfigB
         yield CompilerOption("simpleresolution", 
@@ -817,6 +832,7 @@ let advancedFlagsFsc tcConfigB =
 let testFlag tcConfigB = 
         CompilerOption("test", tagString, OptionString (fun s -> 
                                             match s with
+                                            | "StackSpan"        -> tcConfigB.internalTestSpanStackReferring <- true
                                             | "ErrorRanges"      -> tcConfigB.errorStyle <- ErrorStyle.TestErrors
                                             | "MemberBodyRanges" -> PostTypeCheckSemanticChecks.testFlagMemberBody := true
                                             | "Tracking"         -> Lib.tracking := true (* general purpose on/off diagnostics flag *)
@@ -836,20 +852,16 @@ let testFlag tcConfigB =
 let vsSpecificFlags (tcConfigB: TcConfigBuilder) = 
   [ CompilerOption("vserrors", tagNone, OptionUnit (fun () -> tcConfigB.errorStyle <- ErrorStyle.VSErrors), None, None)
     CompilerOption("validate-type-providers", tagNone, OptionUnit (id), None, None)  // preserved for compatibility's sake, no longer has any effect
-#if PREFERRED_UI_LANG
-    CompilerOption("LCID", tagInt, OptionInt (fun _n -> ()), None, None)
-#else
-    CompilerOption("LCID", tagInt, OptionInt (fun n -> tcConfigB.lcid <- Some(n)), None, None)
-#endif
+    CompilerOption("LCID", tagInt, OptionInt ignore, None, None)
     CompilerOption("flaterrors", tagNone, OptionUnit (fun () -> tcConfigB.flatErrors <- true), None, None) 
-    CompilerOption("sqmsessionguid", tagNone, OptionString (fun s -> tcConfigB.sqmSessionGuid <- try System.Guid(s) |> Some  with e -> None), None, None)
+    CompilerOption("sqmsessionguid", tagNone, OptionString ignore, None, None)
     CompilerOption("gccerrors", tagNone, OptionUnit (fun () -> tcConfigB.errorStyle <- ErrorStyle.GccErrors), None, None) 
     CompilerOption("exename", tagNone, OptionString (fun s -> tcConfigB.exename <- Some(s)), None, None)
     CompilerOption("maxerrors", tagInt, OptionInt (fun n -> tcConfigB.maxErrors <- n), None, None) ]
 
 let internalFlags (tcConfigB:TcConfigBuilder) =
   [
-    CompilerOption("stamps", tagNone, OptionUnit (fun () -> ()), Some(InternalCommandLineOption("--stamps", rangeCmdArgs)), None)
+    CompilerOption("stamps", tagNone, OptionUnit ignore, Some(InternalCommandLineOption("--stamps", rangeCmdArgs)), None)
     CompilerOption("ranges", tagNone, OptionSet Tastops.DebugPrint.layoutRanges, Some(InternalCommandLineOption("--ranges", rangeCmdArgs)), None)  
     CompilerOption("terms" , tagNone, OptionUnit (fun () -> tcConfigB.showTerms <- true), Some(InternalCommandLineOption("--terms", rangeCmdArgs)), None)
     CompilerOption("termsfile" , tagNone, OptionUnit (fun () -> tcConfigB.writeTermsToFiles <- true), Some(InternalCommandLineOption("--termsfile", rangeCmdArgs)), None)
@@ -890,7 +902,7 @@ let internalFlags (tcConfigB:TcConfigBuilder) =
     CompilerOption("splitting", tagNone, OptionSwitch(splittingSwitch tcConfigB),Some(InternalCommandLineOption("splitting", rangeCmdArgs)), None)
     CompilerOption("versionfile", tagString, OptionString (fun s -> tcConfigB.version <- VersionFile s), Some(InternalCommandLineOption("versionfile", rangeCmdArgs)), None)
     CompilerOption("times" , tagNone, OptionUnit  (fun () -> tcConfigB.showTimes <- true), Some(InternalCommandLineOption("times", rangeCmdArgs)), None) // "Display timing profiles for compilation")
-#if EXTENSIONTYPING
+#if !NO_EXTENSIONTYPING
     CompilerOption("showextensionresolution" , tagNone, OptionUnit  (fun () -> tcConfigB.showExtensionTypeMessages <- true), Some(InternalCommandLineOption("showextensionresolution", rangeCmdArgs)), None) // "Display information about extension type resolution")
 #endif
     (* BEGIN: Consider as public Retail option? *)
@@ -1005,7 +1017,7 @@ let abbreviatedFlagsFsc tcConfigB =
     abbreviatedFlagsBoth tcConfigB @
     [   (* FSC only abbreviated options *)
         CompilerOption("o", tagString, OptionString (setOutFileName tcConfigB), None, Some(FSComp.SR.optsShortFormOf("--out")))
-        CompilerOption("a", tagString, OptionUnit (fun () -> tcConfigB.target <- Dll), None, Some(FSComp.SR.optsShortFormOf("--target library")))
+        CompilerOption("a", tagString, OptionUnit (fun () -> tcConfigB.target <- CompilerTarget.Dll), None, Some(FSComp.SR.optsShortFormOf("--target library")))
         (* FSC help abbreviations. FSI has it's own help options... *)
         CompilerOption("?"        , tagNone, OptionHelp (fun blocks -> displayHelpFsc tcConfigB blocks), None, Some(FSComp.SR.optsShortFormOf("--help")))
         CompilerOption("help"     , tagNone, OptionHelp (fun blocks -> displayHelpFsc tcConfigB blocks), None, Some(FSComp.SR.optsShortFormOf("--help")))
@@ -1119,7 +1131,15 @@ let GetCoreFsiCompilerOptions (tcConfigB: TcConfigBuilder) =
                                               testingAndQAFlags       tcConfigB])
   ]
 
-
+let ApplyCommandLineArgs(tcConfigB: TcConfigBuilder, sourceFiles: string list, commandLineArgs) =
+    try
+        let sourceFilesAcc = ResizeArray(sourceFiles)
+        let collect name = if not (Filename.isDll name) then sourceFilesAcc.Add(name)
+        ParseCompilerOptions(collect, GetCoreServiceCompilerOptions tcConfigB, commandLineArgs)
+        ResizeArray.toList(sourceFilesAcc)
+    with e ->
+        errorRecovery e range0
+        sourceFiles
 
 
 //----------------------------------------------------------------------------
@@ -1329,7 +1349,7 @@ let GenerateIlxCode (ilxBackend, isInteractiveItExpr, isInteractiveOnMono, tcCon
           fragName = fragName
           localOptimizationsAreOn= tcConfig.optSettings.localOpt ()
           testFlagEmitFeeFeeAs100001 = tcConfig.testFlagEmitFeeFeeAs100001
-          mainMethodInfo= (if (tcConfig.target = Dll || tcConfig.target = Module) then None else Some topAttrs.mainMethodAttrs)
+          mainMethodInfo= (if (tcConfig.target = CompilerTarget.Dll || tcConfig.target = CompilerTarget.Module) then None else Some topAttrs.mainMethodAttrs)
           ilxBackend = ilxBackend
           isInteractive = tcConfig.isInteractive
           isInteractiveItExpr = isInteractiveItExpr
@@ -1353,7 +1373,7 @@ let NormalizeAssemblyRefs (ctok, tcImports:TcImports) scoref =
 
 let GetGeneratedILModuleName (t:CompilerTarget) (s:string) = 
     // return the name of the file as a module name
-    let ext = match t with | Dll -> "dll" | Module -> "netmodule" | _ -> "exe"
+    let ext = match t with CompilerTarget.Dll -> "dll" | CompilerTarget.Module -> "netmodule" | _ -> "exe"
     s + "." + ext
 
 let ignoreFailureOnMono1_1_16 f = try f() with _ -> ()

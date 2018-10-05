@@ -1,13 +1,10 @@
-// Copyright (c) Microsoft Corporation.  All Rights Reserved.  Licensed under the Apache License, Version 2.0.  See License.txt in the project root for license information.
+// Copyright (c) Microsoft Corporation.  All Rights Reserved.  See License.txt in the project root for license information.
 
 module internal Microsoft.FSharp.Compiler.InnerLambdasToTopLevelFuncs 
 
-open Internal.Utilities
-open Microsoft.FSharp.Compiler.AbstractIL 
+open Microsoft.FSharp.Compiler 
 open Microsoft.FSharp.Compiler.AbstractIL.Internal 
 open Microsoft.FSharp.Compiler.AbstractIL.Internal.Library 
-
-open Microsoft.FSharp.Compiler 
 open Microsoft.FSharp.Compiler.AbstractIL.Diagnostics
 open Microsoft.FSharp.Compiler.Ast
 open Microsoft.FSharp.Compiler.ErrorLogger
@@ -19,21 +16,7 @@ open Microsoft.FSharp.Compiler.Layout
 open Microsoft.FSharp.Compiler.Detuple.GlobalUsageAnalysis
 open Microsoft.FSharp.Compiler.Lib
 
-
 let verboseTLR = false
-
-#if TLR_LIFT
-/// Turns on explicit lifting of TLR constants to toplevel
-/// e.g. use true if want the TLR constants to be initialised once.
-///
-/// NOTE: liftTLR is incomplete and disabled
-///       Approach is to filter Top* let binds whilst "under lambdas",
-///       and wrap them around that expr ASAP (when get to TopLevel position).
-///       However, for arity assigned public vals (not TLR at moment),
-///       assumptions that their RHS are lambdas get broken since the
-///       lambda can be wrapped with bindings...
-let liftTLR    = ref false
-#endif
 
 //-------------------------------------------------------------------------
 // library helpers
@@ -42,7 +25,12 @@ let liftTLR    = ref false
 let internalError str = dprintf "Error: %s\n" str;raise (Failure str)  
 
 module Zmap = 
-    let force k   mp (str,soK) = try Zmap.find k mp with e -> dprintf "Zmap.force: %s %s\n" str (soK k); raise e
+    let force k   mp (str,soK) = 
+        try Zmap.find k mp 
+        with e -> 
+            dprintf "Zmap.force: %s %s\n" str (soK k); 
+            PreserveStackTrace(e)
+            raise e
 
 //-------------------------------------------------------------------------
 // misc
@@ -161,7 +149,7 @@ let IsRefusedTLR g (f:Val) =
     // things marked ValInline.Never are special 
     let dllImportStubOrOtherNeverInline = (f.InlineInfo = ValInline.Never)
     // Cannot have static fields of byref type 
-    let byrefVal = isByrefLikeTy g f.Type
+    let byrefVal = isByrefLikeTy g f.Range f.Type
     // Special values are instance methods etc. on .NET types.  For now leave these alone 
     let specialVal = f.MemberInfo.IsSome
     let alreadyChosen = f.ValReprInfo.IsSome
@@ -174,9 +162,8 @@ let IsMandatoryTopLevel (f:Val) =
     specialVal || isModulBinding
 
 let IsMandatoryNonTopLevel g (f:Val) =
-    let byrefVal = isByrefLikeTy g f.Type
+    let byrefVal = isByrefLikeTy g f.Range f.Type
     byrefVal
-
 
 //-------------------------------------------------------------------------
 // pass1: decide which f are to be TLR? and if so, arity(f)
@@ -739,7 +726,7 @@ let FlatEnvPacks g fclassM topValS declist (reqdItemsMap: Zmap<BindingGroupShari
        //        temp
 
 
-       let vals = vals |> List.filter (fun v -> not (isByrefLikeTy g v.Type))
+       let vals = vals |> List.filter (fun v -> not (isByrefLikeTy g v.Range v.Type))
        // Remove values which have been labelled TLR, no need to close over these
        let vals = vals |> List.filter (Zset.memberOf topValS >> not) 
        
@@ -838,7 +825,7 @@ let CreateNewValuesForTLR g tlrS arityM fclassM envPackM =
         let wf     = Zmap.force f arityM ("createFHat - wf",(fun v -> showL (valL v)))
         let fc     = Zmap.force f fclassM ("createFHat - fc",nameOfVal)
         let envp   = Zmap.force fc envPackM ("CreateNewValuesForTLR - envp",string)
-        let name   = f.LogicalName (* ^ "_TLR_" ^ string wf *)
+        let name   = f.LogicalName (* + "_TLR_" + string wf *)
         let m      = f.Range
         let tps,tau    = f.TypeScheme
         let argtys,res = stripFunTy g tau
@@ -932,33 +919,20 @@ module Pass4_RewriteAssembly =
     let SetPreDecs z pdt = {z with rws_preDecs=pdt}
 
     /// collect Top* repr bindings - if needed... 
-#if TLR_LIFT
-    let LiftTopBinds isRec _penv z binds =
-        let isTopBind (bind: Binding) = Option.isSome bind.Var.ValReprInfo
-        let topBinds,otherBinds = List.partition isTopBind binds
-        let liftTheseBindings =
-            !liftTLR &&             // lifting enabled 
-            not z.rws_mustinline &&   // can't lift bindings in a mustinline context - they would become private an not inlined 
-            z.rws_innerLevel>0 &&   // only collect Top* bindings when at inner levels (else will drop them!) 
-            not (isNil topBinds) // only collect topBinds if there are some! 
-        if liftTheseBindings then
-            let LiftedDeclaration = isRec,topBinds                                           // LiftedDeclaration Top* decs 
-            let z = {z with rws_preDecs = TreeNode [z.rws_preDecs;LeafNode LiftedDeclaration]}   // logged at end 
-            z,otherBinds
-        else
-            z,binds (* not "topBinds @ otherBinds" since that has changed order... *)
-#else
     let LiftTopBinds _isRec _penv z binds =
         z,binds 
-#endif
        
     /// Wrap preDecs (in order) over an expr - use letrec/let as approp 
-    let MakePreDec  m (isRec,binds) expr = 
+    let MakePreDec  m (isRec,binds: Bindings) expr = 
         if isRec=IsRec then 
-            mkLetRecBinds m binds expr
+            // By definition top level bindings don't refer to non-top level bindings, so we can build them in two parts
+            let topLevelBinds, nonTopLevelBinds = binds |> List.partition (fun bind -> bind.Var.IsCompiledAsTopLevel)  
+            mkLetRecBinds m topLevelBinds (mkLetRecBinds m nonTopLevelBinds expr)
         else 
             mkLetsFromBindings  m binds expr
 
+    /// Must MakePreDecs around every construct that could do EnterInner (which filters TLR decs).
+    /// i.e. let,letrec (bind may...), ilobj, lambda, tlambda.
     let MakePreDecs m preDecs expr = List.foldBack (MakePreDec m) preDecs expr
 
     let RecursivePreDecs pdsA pdsB =
@@ -1014,7 +988,7 @@ module Pass4_RewriteAssembly =
             // Take off the variables
             let tps,vss,b,rty = stripTopLambda (b,f.Type)
             // Don't take all the variables - only up to length wf
-            let vssTake,vssDrop = List.chop wf vss
+            let vssTake,vssDrop = List.splitAt wf vss
             // put the variables back on
             let b,rty = mkMultiLambdasCore b.Range vssDrop (b,rty)
             // fHat, args 
@@ -1094,11 +1068,6 @@ module Pass4_RewriteAssembly =
     // pass4: pass (over expr)
     //-------------------------------------------------------------------------
 
-    /// Must WrapPreDecs around every construct that could do EnterInner (which filters TLR decs).
-    /// i.e. let,letrec (bind may...), ilobj, lambda, tlambda.
-    let WrapPreDecs m pds x =
-        MakePreDecs m pds x
-
     /// At bindings, fixup any TLR bindings.
     /// At applications, fixup calls  if they are arity-met instances of TLR.
     /// At free vals,    fixup 0-call if it is an arity-met constant.
@@ -1141,7 +1110,7 @@ module Pass4_RewriteAssembly =
                     (tType,objExprs'),z') z iimpls   
             let expr = Expr.Obj(newUnique(),ty,basev,basecall,overrides,iimpls,m)
             let pds,z = ExtractPreDecs z
-            WrapPreDecs m pds expr,z (* if TopLevel, lift preDecs over the ilobj expr *)
+            MakePreDecs m pds expr,z (* if TopLevel, lift preDecs over the ilobj expr *)
 
         // lambda, tlambda - explicit lambda terms 
         | Expr.Lambda(_,ctorThisValOpt,baseValOpt,argvs,body,m,rty) ->
@@ -1149,14 +1118,14 @@ module Pass4_RewriteAssembly =
             let body,z = TransExpr penv z body
             let z = ExitInner z
             let pds,z = ExtractPreDecs z
-            WrapPreDecs m pds (rebuildLambda m ctorThisValOpt baseValOpt argvs (body,rty)),z
+            MakePreDecs m pds (rebuildLambda m ctorThisValOpt baseValOpt argvs (body,rty)),z
 
         | Expr.TyLambda(_,argtyvs,body,m,rty) ->
             let z = EnterInner z
             let body,z = TransExpr penv z body
             let z = ExitInner z
             let pds,z = ExtractPreDecs z
-            WrapPreDecs m pds (mkTypeLambda m argtyvs (body,rty)),z
+            MakePreDecs m pds (mkTypeLambda m argtyvs (body,rty)),z
 
         /// Lifting TLR out over constructs (disabled)
         /// Lift minimally to ensure the defn is not lifted up and over defns on which it depends (disabled)
@@ -1166,7 +1135,7 @@ module Pass4_RewriteAssembly =
             let targets,z = List.mapFold (TransDecisionTreeTarget penv) z targets
             // TransDecisionTreeTarget wraps EnterInner/exitInnter, so need to collect any top decs 
             let pds,z = ExtractPreDecs z
-            WrapPreDecs m pds (mkAndSimplifyMatch spBind exprm m ty dtree targets),z
+            MakePreDecs m pds (mkAndSimplifyMatch spBind exprm m ty dtree targets),z
 
         // all others - below - rewrite structurally - so boiler plate code after this point... 
         | Expr.Const _ -> expr,z (* constant wrt Val *)
@@ -1211,7 +1180,7 @@ module Pass4_RewriteAssembly =
              // tailcall
              TransLinearExpr penv z e (contf << (fun (e,z) -> 
                  let e = mkLetsFromBindings m rebinds e
-                 WrapPreDecs m pds (Expr.LetRec (binds,e,m,NewFreeVarsCache())),z))
+                 MakePreDecs m pds (Expr.LetRec (binds,e,m,NewFreeVarsCache())),z))
 
          // let - can consider the mu-let bindings as mu-letrec bindings - so like as above 
          | Expr.Let    (bind,e,m,_) ->
@@ -1227,7 +1196,7 @@ module Pass4_RewriteAssembly =
              // tailcall
              TransLinearExpr penv z e (contf << (fun (e,z) -> 
                  let e = mkLetsFromBindings m rebinds e
-                 WrapPreDecs m pds (mkLetsFromBindings m binds e),z))
+                 MakePreDecs m pds (mkLetsFromBindings m binds e),z))
 
          | LinearMatchExpr (spBind,exprm,dtree,tg1,e2,sp2,m2,ty) ->
              let dtree,z = TransDecisionTree penv z dtree
@@ -1279,9 +1248,9 @@ module Pass4_RewriteAssembly =
     and TransValBindings penv z binds = List.mapFold (TransValBinding penv) z  binds
     and TransModuleExpr penv z x = 
         match x with  
-        | ModuleOrNamespaceExprWithSig(mty,def,m) ->  
+        | ModuleOrNamespaceExprWithSig(mty, def, m) ->  
             let def,z = TransModuleDef penv z def
-            ModuleOrNamespaceExprWithSig(mty,def,m),z
+            ModuleOrNamespaceExprWithSig(mty, def, m),z
         
     and TransModuleDefs penv z x = List.mapFold (TransModuleDef penv) z x
     and TransModuleDef penv (z: RewriteState) x : ModuleOrNamespaceExpr * RewriteState = 

@@ -1,4 +1,4 @@
-// Copyright (c) Microsoft Corporation.  All Rights Reserved.  Licensed under the Apache License, Version 2.0.  See License.txt in the project root for license information.
+// Copyright (c) Microsoft Corporation.  All Rights Reserved.  See License.txt in the project root for license information.
 
 using System;
 using System.Runtime.InteropServices;
@@ -666,7 +666,7 @@ namespace Microsoft.VisualStudio.FSharp.ProjectSystem
             {
                 var objectBrowserGuid = VSProjectConstants.guidObjectBrowser;
                 var logicalViewGuid = VSConstants.LOGVIEWID.Primary_guid;
-                IVsUIShellOpenDocument3 shellOpenDocument3 = Package.GetGlobalService(typeof(SVsUIShellOpenDocument)) as IVsUIShellOpenDocument3;
+                IVsUIShellOpenDocument3 shellOpenDocument3 = Microsoft.VisualStudio.Shell.Package.GetGlobalService(typeof(SVsUIShellOpenDocument)) as IVsUIShellOpenDocument3;
                 return shellOpenDocument3.GetProvisionalViewingStatusForEditor(ref objectBrowserGuid, ref logicalViewGuid);
             }
 

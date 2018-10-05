@@ -1,4 +1,4 @@
-// Copyright (c) Microsoft Corporation.  All Rights Reserved.  Licensed under the Apache License, Version 2.0.  See License.txt in the project root for license information.
+// Copyright (c) Microsoft Corporation.  All Rights Reserved.  See License.txt in the project root for license information.
 
 namespace Microsoft.VisualStudio.FSharp.Editor
 
@@ -34,6 +34,7 @@ module internal BlockStructure =
         | Scope.Member -> BlockTypes.Member
         | Scope.LetOrUse
         | Scope.Match
+        | Scope.MatchBang
         | Scope.MatchClause
         | Scope.EnumCase
         | Scope.UnionCase
@@ -92,6 +93,7 @@ module internal BlockStructure =
         | Scope.Match
         | Scope.MatchClause
         | Scope.MatchLambda
+        | Scope.MatchBang
         | Scope.ThenInIfThenElse
         | Scope.ElseInIfThenElse
         | Scope.TryWith
@@ -115,7 +117,7 @@ module internal BlockStructure =
         | Scope.While
         | Scope.For -> false
 
-    let createBlockSpans (sourceText:SourceText) (parsedInput:Ast.ParsedInput) =
+    let createBlockSpans isBlockStructureEnabled (sourceText:SourceText) (parsedInput:Ast.ParsedInput) =
         let linetext = sourceText.Lines |> Seq.map (fun x -> x.ToString()) |> Seq.toArray
         
         Structure.getOutliningRanges linetext parsedInput
@@ -127,19 +129,19 @@ module internal BlockStructure =
             let hintSpan = RoslynHelpers.TryFSharpRangeToTextSpan(sourceText, scopeRange.Range)
             match textSpan,hintSpan with
             | Some textSpan, Some hintSpan ->
-                let line = sourceText.Lines.GetLineFromPosition  textSpan.Start
+                let line = sourceText.Lines.GetLineFromPosition textSpan.Start
                 let bannerText =
                     match Option.ofNullable (line.Span.Intersection textSpan) with
                     | Some span -> sourceText.GetSubText(span).ToString()+"..."
                     | None -> "..."
-
-                Some (BlockSpan(scopeToBlockType scopeRange.Scope, true, textSpan, hintSpan, bannerText, autoCollapse = isAutoCollapsible scopeRange.Scope))
+                let blockType = if isBlockStructureEnabled then scopeToBlockType scopeRange.Scope else BlockTypes.Nonstructural
+                Some (BlockSpan(blockType, true, textSpan, hintSpan, bannerText, autoCollapse = isAutoCollapsible scopeRange.Scope))
             | _, _ -> None
         )
 
 open BlockStructure
  
-type internal FSharpBlockStructureService(checker: FSharpChecker, projectInfoManager: ProjectInfoManager) =
+type internal FSharpBlockStructureService(checker: FSharpChecker, projectInfoManager: FSharpProjectOptionsManager) =
     inherit BlockStructureService()
         
     static let userOpName = "BlockStructure"
@@ -148,17 +150,17 @@ type internal FSharpBlockStructureService(checker: FSharpChecker, projectInfoMan
  
     override __.GetBlockStructureAsync(document, cancellationToken) : Task<BlockStructure> =
         asyncMaybe {
-            let! options = projectInfoManager.TryGetOptionsForEditingDocumentOrProject(document)
+            let! parsingOptions, _options = projectInfoManager.TryGetOptionsForEditingDocumentOrProject(document)
             let! sourceText = document.GetTextAsync(cancellationToken)
-            let! parsedInput = checker.ParseDocument(document, options, sourceText, userOpName)
-            return createBlockSpans sourceText parsedInput |> Seq.toImmutableArray
+            let! parsedInput = checker.ParseDocument(document, parsingOptions, sourceText, userOpName)
+            return createBlockSpans document.FSharpOptions.Advanced.IsBlockStructureEnabled sourceText parsedInput |> Seq.toImmutableArray
         } 
         |> Async.map (Option.defaultValue ImmutableArray<_>.Empty)
         |> Async.map BlockStructure
         |> RoslynHelpers.StartAsyncAsTask(cancellationToken)
 
 [<ExportLanguageServiceFactory(typeof<BlockStructureService>, FSharpConstants.FSharpLanguageName); Shared>]
-type internal FSharpBlockStructureServiceFactory [<ImportingConstructor>](checkerProvider: FSharpCheckerProvider, projectInfoManager: ProjectInfoManager) =
+type internal FSharpBlockStructureServiceFactory [<ImportingConstructor>](checkerProvider: FSharpCheckerProvider, projectInfoManager: FSharpProjectOptionsManager) =
     interface ILanguageServiceFactory with
         member __.CreateLanguageService(_languageServices) =
             upcast FSharpBlockStructureService(checkerProvider.Checker, projectInfoManager)
